@@ -49,7 +49,7 @@ AceArch brings **tasks, subjects, planning, notes, focus sessions, analytics, an
 
 ## 📌 License
 
-*This project is available under the MIT License. Feel free to use, modify and build on it for your own student planner or productivity project.*
+AceArch is available for personal use. The source code is publicly available for viewing, but may not be modified, redistributed, or reused without permission.*
 
 ## 👩‍💻 Author
 
