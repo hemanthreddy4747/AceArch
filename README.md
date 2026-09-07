@@ -49,7 +49,7 @@ AceArch brings **tasks, subjects, planning, notes, focus sessions, analytics, an
 
 ## 📌 License
 
-AceArch is available for personal use. The source code is publicly available for viewing, but may not be modified, redistributed, or reused without permission.*
+*AceArch is available for personal use. The source code is publicly available for viewing, but may not be modified, redistributed, or reused without permission.*
 
 ## 👩‍💻 Author
 
