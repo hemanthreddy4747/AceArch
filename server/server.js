@@ -349,8 +349,8 @@ app.get("/api/data", authenticateToken, async (req, res) => {
 
         const tasks = (await db.all(`
             SELECT id, title, subject, deadline, priority, description,
-                   completed, created_at AS createdAt,
-                   updated_at AS updatedAt, completed_at AS completedAt
+                   completed, created_at AS "createdAt",
+                   updated_at AS "updatedAt", completed_at AS "completedAt"
             FROM tasks
             WHERE user_id = ?
             ORDER BY created_at ASC

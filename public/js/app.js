@@ -4273,14 +4273,17 @@ function niceChartMax(value) {
 function getTaskAnalyticsDate(task) {
     if (!task?.completed) return null;
 
-    const value = task.completedAt || task.updatedAt;
+    const value =
+        task.completedAt ||
+        task.updatedAt ||
+        task.completedat ||
+        task.updatedat;
+
     if (!value) return null;
 
-    // Completion timestamps are stored as UTC ISO strings. The Analytics week is
-    // based on the user's local calendar day, so never compare the raw UTC date
-    // portion with a locally generated date.
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return null;
+
     return dateToString(date);
 }
 
@@ -4819,7 +4822,7 @@ async function deleteCurrentUserData() {
         subjects = [];
         calendarItems = [];
         focusSessions = [];
-            settings = { ...defaultSettings };
+        settings = { ...defaultSettings };
         databaseReady = true;
         databaseUserId = user.id;
         clearUserLocalBackup(user.id);
