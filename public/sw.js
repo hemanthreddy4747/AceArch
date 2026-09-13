@@ -3,13 +3,14 @@
  * Security rule: authenticated/private API traffic is NEVER cached.
  * The service worker only caches the public application shell and static assets.
  */
-const CACHE_NAME = "acearch-shell-v2";
+const CACHE_NAME = "acearch-shell-v8";
 const APP_SHELL = [
     "/",
     "/index.html",
     "/css/style.css",
     "/js/app.js",
     "/manifest.json",
+    "/icons/acearch-icon.svg",
     "/icons/icon-192.png",
     "/icons/icon-512.png"
 ];

@@ -1,1 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="34" fill="#0b0b10"/><rect x="23" y="23" width="146" height="146" rx="34" fill="#171722" stroke="#7c5cff" stroke-width="4"/><path fill="#fff" d="M96 49 55 143h25l7-18h18l7 18h25L96 49zm0 34 6 21H90l6-21z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AceArch logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#11131a"/>
+      <stop offset="1" stop-color="#242832"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff9a3d"/>
+      <stop offset="1" stop-color="#f05a12"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <path d="M72 334 132 392h222l86-86" fill="none" stroke="#f97316" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" opacity=".35"/>
+  <path d="M98 350 154 112h74l94 238h-62l-18-52h-70l-13 52H98Zm89-111h41l-21-73-20 73Z" fill="white"/>
+  <path d="M118 404h276" stroke="url(#orange)" stroke-width="22" stroke-linecap="round"/>
+  <path d="M332 116h58l-22 34" fill="none" stroke="url(#orange)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="404" cy="102" r="18" fill="#f97316"/>
+</svg>

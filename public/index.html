@@ -18,7 +18,7 @@
     <link rel="icon" href="icons/acearch-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#0b0b10">
+    <meta name="theme-color" content="#f97316">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -26,10 +26,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
     <link
-    href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Bebas+Neue&family=Bungee&family=Caveat:wght@400;500;600;700&family=Cinzel:wght@400;500;600;700&family=Comfortaa:wght@400;500;600;700&family=Fira+Code:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Josefin+Sans:wght@400;500;600;700&family=Lobster&family=Merriweather:wght@400;700&family=Monoton&family=Orbitron:wght@400;500;600;700&family=Pacifico&family=Permanent+Marker&family=Playfair+Display:wght@400;500;600;700&family=Press+Start+2P&family=Righteous&family=Unbounded:wght@400;500;600;700&display=swap"
+    href="https://fonts.googleapis.com/css2?DM+Sans:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Lato:wght@400;700&family=Montserrat:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Sora:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Abril+Fatface&family=Bebas+Neue&family=Bungee&family=Caveat:wght@400;500;600;700&family=Cinzel:wght@400;500;600;700&family=Comfortaa:wght@400;500;600;700&family=Fira+Code:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Josefin+Sans:wght@400;500;600;700&family=Lobster&family=Merriweather:wght@400;700&family=Monoton&family=Orbitron:wght@400;500;600;700&family=Pacifico&family=Permanent+Marker&family=Playfair+Display:wght@400;500;600;700&family=Press+Start+2P&family=Righteous&family=Unbounded:wght@400;500;600;700&display=swap"
     rel="stylesheet"
 >
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?DM+Sans:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Lato:wght@400;700&family=Montserrat:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Sora:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Abril+Fatface&family=Bebas+Neue&family=Bungee&family=Caveat&family=Cinzel:wght@400;500;600;700;800&family=Comfortaa:wght@400;500;600;700&family=Fira+Code:wght@400;500;600;700&family=Josefin+Sans:wght@400;500;600;700&family=Lobster&family=Merriweather:wght@400;700&family=Monoton&family=Orbitron:wght@400;500;600;700;800&family=Pacifico&family=Permanent+Marker&family=Playfair+Display:wght@400;500;600;700&family=Press+Start+2P&family=Righteous&family=Unbounded:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
 </head>
 
 <body>
@@ -178,6 +181,17 @@
             </a>
         </nav>
 
+        <div class="mobile-sidebar-account">
+            <div class="mobile-sidebar-user">
+                <span class="account-avatar" id="mobileAccountAvatar">A</span>
+                <div>
+                    <strong id="mobileAccountUsername">Account</strong>
+                    <small>Signed in</small>
+                </div>
+            </div>
+            <button class="secondary-button mobile-logout-button" id="mobileLogoutButton" type="button">Log out</button>
+        </div>
+
     </aside>
 
 
@@ -210,26 +224,13 @@
 
                 <div class="brand-icon">A</div>
 
-                <span>AceArch</span>
+                <div>
+                    <span class="mobile-brand-name">AceArch</span>
+                    <small id="mobilePageTitle">Dashboard</small>
+                </div>
 
             </div>
-
-            <button
-                class="mobile-notification"
-                id="mobileNotificationButton"
-                type="button"
-                aria-label="Notifications"
-            >
-                ♢
-
-                <span
-                    class="notification-dot"
-                    id="mobileNotificationDot"
-                ></span>
-
-            </button>
-
-        </header>
+</header>
 
 
         <!-- DESKTOP HEADER -->
@@ -259,23 +260,7 @@
                     <span class="account-avatar" id="accountAvatar">A</span>
                     <span class="account-username" id="accountUsername"></span>
                 </div>
-
-                <button
-                    class="icon-button notification-trigger"
-                    id="notificationButton"
-                    type="button"
-                    aria-label="Notifications"
-                >
-                    ♢
-
-                    <span
-                        class="notification-dot"
-                        id="notificationDot"
-                    ></span>
-
-                </button>
-
-                <button
+<button
                     class="secondary-button account-logout"
                     id="logoutButton"
                     type="button"
@@ -286,50 +271,7 @@
             </div>
 
         </header>
-
-
-        <!-- =================================================
-             NOTIFICATIONS
-        ================================================== -->
-
-        <div
-            class="notification-panel"
-            id="notificationPanel"
-        >
-
-            <div class="notification-header">
-
-                <div>
-
-                    <p class="card-eyebrow">
-                        UPDATES
-                    </p>
-
-                    <h3>
-                        Notifications
-                    </h3>
-
-                </div>
-
-                <button
-                    class="small-button"
-                    id="clearNotifications"
-                    type="button"
-                >
-                    Clear
-                </button>
-
-            </div>
-
-            <div
-                id="notificationList"
-                class="notification-list"
-            ></div>
-
-        </div>
-
-
-        <!-- =================================================
+<!-- =================================================
              DASHBOARD
         ================================================== -->
 
@@ -1037,8 +979,7 @@
                     </h1>
 
                     <p>
-                        Organize subjects, schedules,
-                        notes and study resources.
+                        Keep each subject, schedule and PDF resource together.
                     </p>
 
                 </div>
@@ -1352,14 +1293,6 @@
 
                     <button
                         class="settings-tab active"
-                        data-settings="notifications"
-                        type="button"
-                    >
-                        Notifications
-                    </button>
-
-                    <button
-                        class="settings-tab"
                         data-settings="customize"
                         type="button"
                     >
@@ -1378,67 +1311,10 @@
 
                     <!-- NOTIFICATIONS -->
 
-                    <div
-                        class="settings-panel active notification-settings-panel"
-                        data-settings-panel="notifications"
-                    >
-
-                        <div class="settings-panel-heading">
-                            <div>
-                                <p class="card-eyebrow">REMINDERS</p>
-                                <h2>Notifications</h2>
-                            </div>
-                            <div class="notification-settings-icon" aria-hidden="true">⏰</div>
-                        </div>
-
-                        <label class="toggle-row notification-master-row">
-                            <div><strong>Deadline &amp; schedule reminders</strong></div>
-                            <input type="checkbox" id="deadlineNotifications">
-                        </label>
-
-                        <div class="notification-rule-card">
-                            <div class="notification-settings-grid">
-                                <div class="form-group">
-                                    <label for="deadlineReminderDays">Remind me From</label>
-                                    <div class="number-stepper">
-                                        <input id="deadlineReminderDays" type="number" min="1" value="3" inputmode="numeric">
-                                        <div class="number-stepper-buttons">
-                                            <button type="button" class="stepper-button" data-stepper-target="deadlineReminderDays" data-stepper-direction="up" aria-label="Increase reminder days">⌃</button>
-                                            <button type="button" class="stepper-button" data-stepper-target="deadlineReminderDays" data-stepper-direction="down" aria-label="Decrease reminder days">⌄</button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="deadlineReminderTime">At</label>
-                                    <input id="deadlineReminderTime" type="time" value="18:00">
-                                </div>
-                            </div>
-
-                            <label class="toggle-row notification-daily-row">
-                                <div><strong>Remind me Every</strong></div>
-                                <input type="checkbox" id="dailyDeadlineReminders">
-                            </label>
-
-                            <div class="form-group daily-reminder-days-field" id="dailyReminderDaysField">
-                                <label for="dailyDeadlineReminderDays">Days</label>
-                                <div class="number-stepper">
-                                    <input id="dailyDeadlineReminderDays" type="number" min="1" value="3" inputmode="numeric">
-                                    <div class="number-stepper-buttons">
-                                        <button type="button" class="stepper-button" data-stepper-target="dailyDeadlineReminderDays" data-stepper-direction="up" aria-label="Increase daily reminder days">⌃</button>
-                                        <button type="button" class="stepper-button" data-stepper-target="dailyDeadlineReminderDays" data-stepper-direction="down" aria-label="Decrease daily reminder days">⌄</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                    </div>
-
-
                     <!-- CUSTOMIZE -->
 
                     <div
-                        class="settings-panel"
+                        class="settings-panel active"
                         data-settings-panel="customize"
                     >
 
@@ -1530,9 +1406,17 @@
                                 <button class="color-choice" data-color="#f97316" style="--choice-color:#f97316" type="button" aria-label="Orange"></button>
                                 <button class="color-choice" data-color="#ef4444" style="--choice-color:#ef4444" type="button" aria-label="Red"></button>
                                 <button class="color-choice" data-color="#f43f5e" style="--choice-color:#f43f5e" type="button" aria-label="Rose"></button>
+                                <button class="color-choice" data-color="#fb7185" style="--choice-color:#fb7185" type="button" aria-label="Coral Rose"></button>
+                                <button class="color-choice" data-color="#f59e0b" style="--choice-color:#f59e0b" type="button" aria-label="Amber Gold"></button>
+                                <button class="color-choice" data-color="#fb923c" style="--choice-color:#fb923c" type="button" aria-label="Tangerine"></button>
+                                <button class="color-choice" data-color="#facc15" style="--choice-color:#facc15" type="button" aria-label="Sun Gold"></button>
+                                <button class="color-choice" data-color="#a3e635" style="--choice-color:#a3e635" type="button" aria-label="Chartreuse"></button>
+                                <button class="color-choice" data-color="#2dd4bf" style="--choice-color:#2dd4bf" type="button" aria-label="Mint Teal"></button>
+                                <button class="color-choice" data-color="#34d399" style="--choice-color:#34d399" type="button" aria-label="Emerald"></button>
+                                <button class="color-choice" data-color="#22d3ee" style="--choice-color:#22d3ee" type="button" aria-label="Turquoise"></button>
+                                <button class="color-choice" data-color="#38bdf8" style="--choice-color:#38bdf8" type="button" aria-label="Cerulean"></button>
+                                <button class="color-choice" data-color="#818cf8" style="--choice-color:#818cf8" type="button" aria-label="Periwinkle"></button>
                                 <button class="color-choice" data-color="#ec4899" style="--choice-color:#ec4899" type="button" aria-label="Pink"></button>
-                                <button class="color-choice" data-color="#d946ef" style="--choice-color:#d946ef" type="button" aria-label="Fuchsia"></button>
-                                <button class="color-choice" data-color="#a855f7" style="--choice-color:#a855f7" type="button" aria-label="Violet Bright"></button>
                             </div>
 
                         </div>
@@ -1563,66 +1447,35 @@
                                 <option value="Cinzel">Cinzel</option>
                                 <option value="Comfortaa">Comfortaa</option>
                                 <option value="Josefin Sans">Josefin Sans</option>
+                                <option value="DM Sans">DM Sans</option>
+                                <option value="IBM Plex Sans">IBM Plex Sans</option>
+                                <option value="Lato">Lato</option>
+                                <option value="Montserrat">Montserrat</option>
+                                <option value="Nunito">Nunito</option>
+                                <option value="Poppins">Poppins</option>
+                                <option value="Quicksand">Quicksand</option>
+                                <option value="Roboto">Roboto</option>
+                                <option value="Sora">Sora</option>
+                                <option value="Space Grotesk">Space Grotesk</option>
                                 <option value="Fira Code">Fira Code</option>
                                 <option value="Unbounded">Unbounded</option>
                             </select>
 
                         </div>
 
-
-                        <div class="customize-group">
-
-                            <h3>
-                                Interface Density
-                            </h3>
-
-                            <div class="choice-grid">
-
-                                <button
-                                    class="choice-card"
-                                    data-density="comfortable"
-                                    type="button"
-                                >
-
-                                    <strong>
-                                        Comfortable
-                                    </strong>
-
-                                    <span>
-                                        More spacing
-                                    </span>
-
-                                </button>
-
-
-                                <button
-                                    class="choice-card"
-                                    data-density="compact"
-                                    type="button"
-                                >
-
-                                    <strong>
-                                        Compact
-                                    </strong>
-
-                                    <span>
-                                        Less spacing
-                                    </span>
-
-                                </button>
-
+                        <div class="setting-row settings-inline-action customization-reset-row">
+                            <div>
+                                <strong>Reset customization</strong>
+                                <small>Restore the default theme, accent color and font.</small>
                             </div>
-
+                            <button
+                                class="secondary-button"
+                                id="resetCustomization"
+                                type="button"
+                            >
+                                Reset
+                            </button>
                         </div>
-
-
-                        <button
-                            class="secondary-button"
-                            id="resetCustomization"
-                            type="button"
-                        >
-                            Reset Customization
-                        </button>
 
                     </div>
 
@@ -1646,12 +1499,20 @@
                             </div>
                         </div>
 
+                                                <div class="account-action-card">
+                            <div>
+                                <h3>Password</h3>
+                                <p class="settings-help-text">Change your AceArch account password.</p>
+                            </div>
+                            <button class="secondary-button" id="openResetPassword" type="button">Reset Password</button>
+                        </div>
+
                         <div class="account-action-card" id="installAppCard">
                             <div>
                                 <h3>Install AceArch</h3>
-                                <p class="settings-help-text">Add AceArch to your Home Screen or install it like an app.</p>
+                                <p class="settings-help-text">Install AceArch as an app on your device.</p>
                             </div>
-                            <button class="secondary-button" id="installAppButton" type="button">Add to Home Screen</button>
+                            <button class="secondary-button" id="installAppButton" type="button">Install AceArch</button>
                         </div>
 
                         <div class="account-action-card">
@@ -1678,6 +1539,65 @@
 
     </main>
 
+</div>
+
+
+<!-- =======================================================
+     RESET PASSWORD MODAL
+======================================================== -->
+
+<div
+    class="modal-overlay"
+    id="resetPasswordModal"
+    aria-hidden="true"
+>
+    <div
+        class="modal password-reset-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resetPasswordModalTitle"
+    >
+        <div class="modal-header">
+            <div>
+                <p class="card-eyebrow">ACCOUNT SECURITY</p>
+                <h2 id="resetPasswordModalTitle">Reset Password</h2>
+            </div>
+            <button class="close-modal" data-close-modal type="button" aria-label="Close">×</button>
+        </div>
+
+        <form id="resetPasswordForm">
+            <div class="form-group">
+                <label for="resetCurrentPassword">Old password</label>
+                <div class="password-input-wrap">
+                    <input id="resetCurrentPassword" type="password" autocomplete="current-password" minlength="6" required>
+                    <button class="password-toggle" type="button" data-password-target="resetCurrentPassword" aria-label="Show password" aria-pressed="false">◉</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="resetNewPassword">New password</label>
+                <div class="password-input-wrap">
+                    <input id="resetNewPassword" type="password" autocomplete="new-password" minlength="6" required>
+                    <button class="password-toggle" type="button" data-password-target="resetNewPassword" aria-label="Show password" aria-pressed="false">◉</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="resetConfirmPassword">Confirm new password</label>
+                <div class="password-input-wrap">
+                    <input id="resetConfirmPassword" type="password" autocomplete="new-password" minlength="6" required>
+                    <button class="password-toggle" type="button" data-password-target="resetConfirmPassword" aria-label="Show password" aria-pressed="false">◉</button>
+                </div>
+            </div>
+
+            <p class="settings-form-message" id="resetPasswordMessage" role="alert" aria-live="polite"></p>
+
+            <div class="modal-actions">
+                <button class="secondary-button" type="button" data-close-modal>Cancel</button>
+                <button class="primary-button" type="submit" id="resetPasswordButton">Reset Password</button>
+            </div>
+        </form>
+    </div>
 </div>
 
 
@@ -2007,8 +1927,8 @@
                 <div class="form-group subject-color-group">
                     <label for="subjectColor">Subject color</label>
                     <div class="subject-color-control">
-                        <input id="subjectColor" type="color" value="#7c5cff" aria-label="Choose subject color">
-                        <div class="subject-color-value" id="subjectColorValue">#7C5CFF</div>
+                        <input id="subjectColor" type="color" value="#f97316" aria-label="Choose subject color">
+                        <div class="subject-color-value" id="subjectColorValue">#F97316</div>
                     </div>
                 </div>
             </div>
@@ -2047,6 +1967,64 @@
 
     </div>
 
+</div>
+
+
+<!-- =======================================================
+     SUBJECT WORKSPACE MODAL
+======================================================== -->
+
+<div
+    class="modal-overlay"
+    id="subjectWorkspaceModal"
+    aria-hidden="true"
+>
+    <div class="modal modal-large subject-workspace-modal" role="dialog" aria-modal="true">
+        <div class="modal-header">
+            <div>
+                <p class="card-eyebrow">SUBJECT WORKSPACE</p>
+                <h2 id="subjectWorkspaceTitle">Subject</h2>
+                <p id="subjectWorkspaceSubtitle">Manage schedule and PDF resources.</p>
+            </div>
+            <button class="close-modal" id="closeSubjectWorkspace" type="button" aria-label="Close">×</button>
+        </div>
+
+        <div class="subject-workspace-toolbar">
+            <div class="workspace-action-copy">
+                <strong>Subject resources</strong>
+                <span>Build a clean schedule and keep your study PDFs synced across devices.</span>
+            </div>
+            <div class="workspace-actions">
+                <button class="primary-button" id="workspaceAddSchedule" type="button">+ Add Schedule</button>
+                <button class="secondary-button" id="workspaceAddPdf" type="button">↑ Upload PDF</button>
+            </div>
+            <input type="file" id="workspacePdfInput" accept="application/pdf" hidden>
+        </div>
+
+        <div class="subject-workspace-grid">
+            <section class="subject-resource-panel">
+                <div class="subject-resource-heading">
+                    <div>
+                        <p class="card-eyebrow">SCHEDULE</p>
+                        <h3>Upcoming schedule</h3>
+                    </div>
+                    <span class="planner-count" id="workspaceScheduleCount">0</span>
+                </div>
+                <div id="workspaceScheduleList"></div>
+            </section>
+
+            <section class="subject-resource-panel">
+                <div class="subject-resource-heading">
+                    <div>
+                        <p class="card-eyebrow">RESOURCES</p>
+                        <h3>PDF notes</h3>
+                    </div>
+                    <span class="planner-count" id="workspacePdfCount">0</span>
+                </div>
+                <div id="workspacePdfList"></div>
+            </section>
+        </div>
+    </div>
 </div>
 
 

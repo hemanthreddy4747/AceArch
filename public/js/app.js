@@ -111,10 +111,10 @@ function resetUserDataInMemory() {
 
 function applyAuthenticationAppearance() {
     document.documentElement.style.setProperty("--accent", defaultSettings.accent);
-    document.body.style.fontFamily = defaultSettings.font;
-    document.body.dataset.density = defaultSettings.density;
+    document.documentElement.style.setProperty("--app-font", `"${defaultSettings.font}"`);
+    document.body.style.fontFamily = `"${defaultSettings.font}", system-ui, sans-serif`;
     document.body.classList.remove("light");
-    document.querySelectorAll("[data-theme], [data-density], .color-choice").forEach(element => element.classList.remove("selected"));
+    document.querySelectorAll("[data-theme], .color-choice").forEach(element => element.classList.remove("selected"));
 }
 
 function playWorkspaceTransition() {
@@ -143,6 +143,8 @@ function showAppForSession() {
     const avatarElement = document.getElementById("accountAvatar");
     const settingsUsername = document.getElementById("settingsAccountUsername");
     const settingsAvatar = document.getElementById("settingsAccountAvatar");
+    const mobileUsername = document.getElementById("mobileAccountUsername");
+    const mobileAvatar = document.getElementById("mobileAccountAvatar");
 
     const username = user?.username || "Account";
     const avatar = username.trim().charAt(0).toUpperCase() || "A";
@@ -151,6 +153,8 @@ function showAppForSession() {
     if (avatarElement) avatarElement.textContent = avatar;
     if (settingsUsername) settingsUsername.textContent = username;
     if (settingsAvatar) settingsAvatar.textContent = avatar;
+    if (mobileUsername) mobileUsername.textContent = username;
+    if (mobileAvatar) mobileAvatar.textContent = avatar;
 }
 
 function showLoginScreen() {
@@ -309,12 +313,15 @@ function initializeFrontendAuth() {
 
     document.getElementById("authForm")?.addEventListener("submit", handleAuthSubmit);
 
-    document.getElementById("logoutButton")?.addEventListener("click", () => {
+    const logout = () => {
         clearAuthData();
         showLoginScreen();
         authMode = "login";
         updateAuthMode();
-    });
+    };
+
+    document.getElementById("logoutButton")?.addEventListener("click", logout);
+    document.getElementById("mobileLogoutButton")?.addEventListener("click", logout);
 
     updateAuthMode();
     authInitializationPromise = Promise.resolve().then(verifyExistingSession);
@@ -338,16 +345,8 @@ const STORAGE_KEYS = {
 
 const defaultSettings = {
     theme: "dark",
-    accent: "#7c5cff",
-    font: "Inter",
-    density: "comfortable",
-
-    deadlineNotifications: true,
-    deadlineReminderDays: 3,
-    deadlineReminderTime: "18:00",
-    dailyDeadlineReminders: false,
-    dailyDeadlineReminderDays: 3,
-
+    accent: "#f97316",
+    font: "Josefin Sans",
     confirmDelete: true,
     autoCalendarTasks: true
 };
@@ -394,8 +393,9 @@ let settings = { ...defaultSettings };
  * localStorage remains as a browser-side backup, while PostgreSQL is
  * now the primary persistent store for AceArch app data.
  *
- * Calendar and focus data are stored in PostgreSQL. PDFs remain
- * in the existing IndexedDB system because they are binary files.
+ * Calendar, focus data and PDF metadata are stored in PostgreSQL.
+ * PDF binary files are stored in the PostgreSQL pdfs table so they sync
+ * across devices; IndexedDB remains as a local fallback for offline use.
  */
 
 let databaseReady = false;
@@ -449,6 +449,7 @@ function loadUserLocalBackup(userId) {
     focusSessions = read(STORAGE_KEYS.focus, []);
     notifications = read(STORAGE_KEYS.notifications, []);
     settings = { ...defaultSettings, ...read(STORAGE_KEYS.settings, {}) };
+    if (settings.font === "Cinzel") settings.font = defaultSettings.font;
     databaseUserId = userId;
     return true;
 }
@@ -546,10 +547,31 @@ async function loadDatabaseData() {
 
         tasks = Array.isArray(data.tasks) ? data.tasks : [];
         subjects = Array.isArray(data.subjects) ? data.subjects : [];
+        const serverPdfs = Array.isArray(data.pdfs) ? data.pdfs : [];
+        const pdfsBySubject = new Map();
+        serverPdfs.forEach(pdf => {
+            if (!pdf?.subjectId || !pdf?.id) return;
+            if (!pdfsBySubject.has(pdf.subjectId)) pdfsBySubject.set(pdf.subjectId, []);
+            pdfsBySubject.get(pdf.subjectId).push({
+                id: pdf.id,
+                name: pdf.name || "AceArch document.pdf",
+                type: pdf.type || "application/pdf",
+                size: Number(pdf.size) || 0,
+                createdAt: pdf.createdAt || new Date().toISOString()
+            });
+        });
+        subjects.forEach(subject => {
+            const cloudNotes = pdfsBySubject.get(subject.id) || [];
+            const localNotes = Array.isArray(subject.notes) ? subject.notes : [];
+            const byId = new Map(localNotes.map(note => [note.id, note]));
+            cloudNotes.forEach(note => byId.set(note.id, { ...byId.get(note.id), ...note }));
+            subject.notes = Array.from(byId.values());
+        });
         notifications = Array.isArray(data.notifications) ? data.notifications : [];
         calendarItems = Array.isArray(data.calendarItems) ? data.calendarItems : [];
         focusSessions = Array.isArray(data.focusSessions) ? data.focusSessions : [];
         settings = { ...defaultSettings, ...(data.settings || {}) };
+        if (settings.font === "Cinzel") settings.font = defaultSettings.font;
 
         databaseReady = true;
         databaseUserId = userId;
@@ -592,6 +614,9 @@ async function startAuthenticatedDatabaseLoad() {
     databaseUserId = null;
     databaseLoadPromise = loadDatabaseData();
     await databaseLoadPromise;
+    if (databaseReady && databaseUserId === userId) {
+        await syncLocalPdfsToServer();
+    }
 }
 
 /* =========================================================
@@ -645,6 +670,16 @@ function todayString() {
 
     ].join("-");
 
+}
+
+
+function formatBytes(bytes) {
+    const value = Number(bytes) || 0;
+
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 
@@ -939,13 +974,10 @@ function navigate(section) {
             "#pageTitle"
         );
 
-    if (title) {
-
-        title.textContent =
-            pageTitles[section] ||
-            "AceArch";
-
-    }
+    const resolvedTitle = pageTitles[section] || "AceArch";
+    if (title) title.textContent = resolvedTitle;
+    const mobileTitle = document.querySelector("#mobilePageTitle");
+    if (mobileTitle) mobileTitle.textContent = resolvedTitle;
 
 
     closeSidebar();
@@ -980,7 +1012,9 @@ function navigate(section) {
             break;
 
         case "analytics":
-            renderAnalytics();
+            // Render after the section has been made visible so the SVG animation
+            // starts from a laid-out element. Render only once per navigation.
+            requestAnimationFrame(() => renderAnalytics());
             break;
 
         case "settings":
@@ -1084,16 +1118,13 @@ function updateCurrentDate() {
         return;
     }
 
-    element.textContent =
-        new Date().toLocaleDateString(
-            undefined,
-            {
-                weekday: "long",
-                year: "numeric",
-                month: "long",
-                day: "numeric"
-            }
-        );
+    const formatted = new Date().toLocaleDateString(undefined, {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric"
+    });
+    element.textContent = formatted;
 
 }
 
@@ -1114,9 +1145,8 @@ function openModal(id) {
         return;
     }
 
-    modal.classList.add(
-        "show"
-    );
+    modal.classList.add("show");
+    modal.setAttribute("aria-hidden", "false");
 
 }
 
@@ -1130,27 +1160,21 @@ function closeModal(id) {
         return;
     }
 
-    modal.classList.remove(
-        "show"
-    );
+    modal.classList.remove("show");
+    modal.setAttribute("aria-hidden", "true");
 
 }
 
 
-document
-    .querySelectorAll(
-        "[data-close-modal]"
-    )
-    .forEach(button => {
+document.addEventListener("click", event => {
+    const button = event.target.closest?.("[data-close-modal]");
+    if (!button) return;
 
-        button.addEventListener(
-            "click",
-            () => closeModal(
-                "#taskModal"
-            )
-        );
-
-    });
+    const modal = button.closest(".modal-overlay");
+    if (modal) {
+        closeModal(`#${modal.id}`);
+    }
+});
 
 
 document
@@ -1507,14 +1531,9 @@ function toggleTask(taskId, completed) {
         return;
     }
 
-    task.completed =
-        completed;
-
-    task.completedAt =
-        completed
-            ? new Date().toISOString()
-            : null;
-
+    task.completed = completed;
+    task.completedAt = completed ? new Date().toISOString() : null;
+    task.updatedAt = new Date().toISOString();
     saveData();
 
     renderAll();
@@ -2879,98 +2898,64 @@ function renderCalendar() {
 }
 
 
-function createCalendarDay(
-    date,
-    muted
-) {
-
-    const button =
-        document.createElement(
-            "button"
-        );
-
-
-    const dateString =
-        dateToString(date);
-
-
-    button.type =
-        "button";
-
-    button.className =
-        "calendar-day";
-
-
-    if (muted) {
-        button.classList.add(
-            "muted"
-        );
-    }
-
-
-    if (
-        dateString ===
-        todayString()
-    ) {
-
-        button.classList.add(
-            "today"
-        );
-
-    }
-
-
-    if (
-        dateString ===
-        selectedCalendarDate
-    ) {
-
-        button.classList.add(
-            "selected"
-        );
-
-    }
-
-
-    const items =
-        calendarItems.filter(
-            item =>
-                item.date ===
-                dateString
-        );
-
-
-    button.innerHTML = `
-
-        <span class="day-number">
-            ${date.getDate()}
-        </span>
-
-        ${items.length
-            ? `<span class="day-dot"></span>`
-            : ""
-        }
-
-    `;
-
-
-    button.addEventListener(
-        "click",
-        () => {
-
-            selectedCalendarDate =
-                dateString;
-
-            renderCalendar();
-
-        }
-    );
-
-
-    return button;
-
+function getCalendarItemsForDate(dateString) {
+    const explicit = calendarItems.filter(item => item.date === dateString);
+    const existingTaskIds = new Set(explicit.filter(item => item.taskId).map(item => item.taskId));
+    const derived = settings.autoCalendarTasks !== false
+        ? tasks.filter(task => task?.deadline === dateString && task?.id && !existingTaskIds.has(task.id)).map(task => ({
+            id: `derived-${task.id}`,
+            title: task.title,
+            date: task.deadline,
+            type: "task",
+            taskId: task.id,
+            derived: true
+        }))
+        : [];
+    return [...explicit, ...derived];
 }
 
+function createCalendarDay(date, muted) {
+    const button = document.createElement("button");
+    const dateString = dateToString(date);
+
+    button.type = "button";
+    button.className = "calendar-day";
+    if (muted) button.classList.add("muted");
+    if (dateString === todayString()) button.classList.add("today");
+    if (dateString === selectedCalendarDate) button.classList.add("selected");
+
+    const items = getCalendarItemsForDate(dateString);
+    const taskStates = items
+        .filter(item => item.taskId)
+        .map(item => tasks.find(candidate => candidate.id === item.taskId))
+        .filter(Boolean);
+
+    const hasIncompleteTask = taskStates.some(task => !task.completed);
+    const hasCompletedTask = taskStates.some(task => Boolean(task.completed));
+
+    if (hasCompletedTask) button.classList.add("has-completed-task");
+    if (hasIncompleteTask) button.classList.add("has-incomplete-task");
+
+    let statusMarkup = "";
+    if (hasIncompleteTask) {
+        statusMarkup += '<span class="day-status day-status-incomplete" aria-label="Incomplete task">×</span>';
+    }
+    if (hasCompletedTask) {
+        statusMarkup += '<span class="day-status day-status-completed" aria-label="Completed task">✓</span>';
+    }
+
+    button.innerHTML = `
+        <span class="day-number">${date.getDate()}</span>
+        ${statusMarkup}
+    `;
+
+    button.addEventListener("click", () => {
+        selectedCalendarDate = dateString;
+        renderCalendar();
+    });
+
+    return button;
+}
 
 document
     .querySelector(
@@ -3009,87 +2994,37 @@ document
 
 
 function renderSelectedDate() {
+    const title = document.querySelector("#selectedDateTitle");
+    const container = document.querySelector("#selectedDateItems");
+    if (!title || !container) return;
 
-    const title =
-        document.querySelector(
-            "#selectedDateTitle"
-        );
+    title.textContent = formatFullDate(selectedCalendarDate);
 
-    const container =
-        document.querySelector(
-            "#selectedDateItems"
-        );
+    const items = getCalendarItemsForDate(selectedCalendarDate);
 
-
-    if (!title || !container) {
-        return;
-    }
-
-
-    title.textContent =
-        formatFullDate(
-            selectedCalendarDate
-        );
-
-
-    const items =
-        calendarItems.filter(
-            item =>
-                item.date ===
-                selectedCalendarDate
-        );
-
-
-    container.innerHTML =
-        items.length
-
-            ? items.map(item => `
-
-                <div class="calendar-item">
-
-                    <strong>
-                        ${escapeHTML(
-                item.title
-            )}
-                    </strong>
-
+    container.innerHTML = items.length
+        ? items.map(item => {
+            const task = item.taskId ? tasks.find(candidate => candidate.id === item.taskId) : null;
+            const completed = Boolean(task?.completed);
+            return `
+                <div class="calendar-item ${completed ? "calendar-task-completed" : ""}">
+                    <strong>${escapeHTML(item.title)}</strong>
                     <small>
-                        ${escapeHTML(
-                item.type
-            )}
-
-                        ${item.taskId
-                    ? " · Task"
-                    : ""
-                }
+                        ${escapeHTML(item.type)}
+                        ${item.taskId ? " · Task" : ""}
+                        ${completed ? " · Completed" : ""}
                     </small>
-
                 </div>
-
-            `).join("")
-
-            : `
-
-                <div class="empty-state">
-
-                    <div class="empty-icon">
-                        □
-                    </div>
-
-                    <h3>
-                        Nothing planned
-                    </h3>
-
-                    <p>
-                        Add a reminder, event or task.
-                    </p>
-
-                </div>
-
             `;
-
+        }).join("")
+        : `
+            <div class="empty-state">
+                <div class="empty-icon">□</div>
+                <h3>Nothing planned</h3>
+                <p>Add a reminder, event or task.</p>
+            </div>
+        `;
 }
-
 
 document
     .querySelector(
@@ -3252,7 +3187,7 @@ document
 ========================================================= */
 
 let editingSubjectId = null;
-let pendingSubjectColor = "#7c5cff";
+let pendingSubjectColor = "#f97316";
 
 function updateSubjectColorUI() {
     const colorInput = document.querySelector("#subjectColor");
@@ -3261,7 +3196,7 @@ function updateSubjectColorUI() {
     const namePreview = document.querySelector("#subjectPreviewName");
     const nameInput = document.querySelector("#subjectName");
 
-    const color = pendingSubjectColor || colorInput?.value || "#7c5cff";
+    const color = pendingSubjectColor || colorInput?.value || "#f97316";
     if (colorInput && colorInput.value.toLowerCase() !== color.toLowerCase()) colorInput.value = color;
     if (value) value.textContent = color.toUpperCase();
     if (swatch) swatch.style.background = color;
@@ -3273,7 +3208,7 @@ function prepareSubjectModal() {
     const form = document.querySelector("#subjectForm");
     if (form) form.reset();
 
-    pendingSubjectColor = "#7c5cff";
+    pendingSubjectColor = "#f97316";
     const color = document.querySelector("#subjectColor");
     if (color) color.value = pendingSubjectColor;
 
@@ -3295,7 +3230,7 @@ document.querySelector("#subjectForm")?.addEventListener("submit", event => {
     event.preventDefault();
 
     const name = document.querySelector("#subjectName")?.value.trim() || "";
-    const color = pendingSubjectColor || document.querySelector("#subjectColor")?.value || "#7c5cff";
+    const color = pendingSubjectColor || document.querySelector("#subjectColor")?.value || "#f97316";
 
     if (!name) {
         showToast("Enter a subject name.", "error");
@@ -3347,12 +3282,12 @@ document.querySelector("#subjectForm")?.addEventListener("submit", event => {
 
 document.querySelector("#subjectName")?.addEventListener("input", updateSubjectColorUI);
 document.querySelector("#subjectColor")?.addEventListener("input", event => {
-    pendingSubjectColor = event.target.value || "#7c5cff";
+    pendingSubjectColor = event.target.value || "#f97316";
     updateSubjectColorUI();
 });
 
 document.querySelector("#subjectColor")?.addEventListener("change", event => {
-    pendingSubjectColor = event.target.value || "#7c5cff";
+    pendingSubjectColor = event.target.value || "#f97316";
     updateSubjectColorUI();
     event.target.blur();
 });
@@ -3365,7 +3300,7 @@ function editSubject(subjectId) {
     const name = document.querySelector("#subjectName");
     const color = document.querySelector("#subjectColor");
     if (name) name.value = subject.name;
-    pendingSubjectColor = subject.color || "#7c5cff";
+    pendingSubjectColor = subject.color || "#f97316";
     if (color) color.value = pendingSubjectColor;
 
     const heading = document.querySelector("#subjectModal h2");
@@ -3394,364 +3329,81 @@ async function deleteSubject(subjectId) {
 }
 
 /* =========================================================
-   SUBJECT SCHEDULE + NOTES UI
+   SUBJECT WORKSPACE — SCHEDULE + PDF RESOURCES
+   The old full-page Subject Planner is intentionally removed.
+   Schedule and PDF management now live inside each subject.
 ========================================================= */
 
-function ensureSubjectExtras() {
+let activeSubjectWorkspaceId = null;
 
-    const section =
-        document.querySelector(
-            "#subjectsSection"
-        );
-
-    if (!section) {
-        return;
-    }
-
-
-    if (
-        document.querySelector(
-            "#subjectPlannerArea"
-        )
-    ) {
-        return;
-    }
-
-
-    const area =
-        document.createElement("div");
-
-    area.id =
-        "subjectPlannerArea";
-
-    area.className =
-        "card subject-planner-area";
-
-    area.innerHTML = `
-
-        <div class="card-header">
-
-            <div>
-                <p class="card-eyebrow">
-                    PLANNER
-                </p>
-
-                <h2>Subject Planner</h2>
-
-                <p>
-                    Select a subject to manage its schedule
-                    and PDF notes.
-                </p>
-            </div>
-
-        </div>
-
-        <div
-            id="subjectPlannerContent">
-        </div>
-
-    `;
-
-
-    const grid =
-        document.querySelector(
-            "#subjectsGrid"
-        );
-
-    if (grid) {
-        grid.after(area);
-    } else {
-        section.appendChild(area);
-    }
-
+function getActiveSubjectWorkspace() {
+    return subjects.find(subject => subject.id === activeSubjectWorkspaceId) || null;
 }
 
+function renderSubjectWorkspace() {
+    const subject = getActiveSubjectWorkspace();
+    if (!subject) return;
 
-function renderSubjectPlanner() {
+    if (!Array.isArray(subject.schedule)) subject.schedule = [];
+    if (!Array.isArray(subject.notes)) subject.notes = [];
 
-    ensureSubjectExtras();
+    const title = document.querySelector("#subjectWorkspaceTitle");
+    const subtitle = document.querySelector("#subjectWorkspaceSubtitle");
+    const scheduleList = document.querySelector("#workspaceScheduleList");
+    const pdfList = document.querySelector("#workspacePdfList");
+    const scheduleCount = document.querySelector("#workspaceScheduleCount");
+    const pdfCount = document.querySelector("#workspacePdfCount");
 
-    const container =
-        document.querySelector(
-            "#subjectPlannerContent"
-        );
+    if (title) title.textContent = subject.name;
+    if (subtitle) subtitle.textContent = "Manage this subject's schedule and PDF resources.";
+    if (scheduleCount) scheduleCount.textContent = String(subject.schedule.length);
+    if (pdfCount) pdfCount.textContent = String(subject.notes.length);
 
-    if (!container) {
-        return;
+    const sortedSchedule = subject.schedule
+        .slice()
+        .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+
+    if (scheduleList) {
+        scheduleList.innerHTML = sortedSchedule.length
+            ? sortedSchedule.map(scheduleHTML).join("")
+            : `<div class="resource-empty"><strong>No schedule yet</strong><span>Add a class, study session, exam or other plan.</span></div>`;
     }
 
-
-    if (!subjects.length) {
-
-        container.innerHTML = `
-
-            <div class="empty-state">
-
-                <h3>
-                    Create a subject first
-                </h3>
-
-                <p>
-                    Your subject schedule and PDF notes
-                    will appear here.
-                </p>
-
-            </div>
-
-        `;
-
-        return;
-
+    if (pdfList) {
+        pdfList.innerHTML = subject.notes.length
+            ? subject.notes.map(noteHTML).join("")
+            : `<div class="resource-empty"><strong>No PDF notes yet</strong><span>Upload lecture notes, study material or reference PDFs.</span></div>`;
     }
-
-
-    let selectedId =
-        container.dataset.selectedSubject ||
-        subjects[0].id;
-
-
-    if (
-        !subjects.some(
-            subject =>
-                subject.id === selectedId
-        )
-    ) {
-
-        selectedId =
-            subjects[0].id;
-
-    }
-
-
-    container.dataset.selectedSubject =
-        selectedId;
-
-
-    const subject =
-        subjects.find(
-            item =>
-                item.id === selectedId
-        );
-
-
-    if (!subject) {
-        return;
-    }
-
-
-    if (!Array.isArray(subject.schedule)) {
-        subject.schedule = [];
-    }
-
-    if (!Array.isArray(subject.notes)) {
-        subject.notes = [];
-    }
-
-
-    container.innerHTML = `
-
-        <div class="subject-planner-hero">
-            <div>
-                <p class="card-eyebrow">SUBJECT PLANNER</p>
-                <h2>${escapeHTML(subject.name)} <span class="subject-planner-color-dot" style="background:${escapeHTML(subject.color || "#7c5cff")}"></span></h2>
-                <p>Plan classes, study sessions and exams in one calm timeline. Your reminder settings apply automatically.</p>
-            </div>
-            <div class="subject-planner-next">
-                <span>Reminder</span>
-                <strong>${Math.max(1, Number(settings.deadlineReminderDays) || 3)} days · ${escapeHTML(settings.deadlineReminderTime || "18:00")}</strong>
-            </div>
-        </div>
-
-        <div class="subject-planner-toolbar">
-
-            <select id="plannerSubjectSelect">
-
-                ${subjects.map(item => `
-
-                    <option
-                        value="${escapeHTML(item.id)}"
-                        ${item.id === selectedId ? "selected" : ""}>
-                        ${escapeHTML(item.name)}
-                    </option>
-
-                `).join("")}
-
-            </select>
-
-            <button
-                type="button"
-                class="primary-button"
-                id="addScheduleButton">
-                + Add Schedule
-            </button>
-
-            <button
-                type="button"
-                class="secondary-button"
-                id="uploadSubjectPdfButton">
-                + Add PDF Note
-            </button>
-
-            <input
-                type="file"
-                id="subjectPdfInput"
-                accept="application/pdf"
-                hidden>
-
-        </div>
-
-
-        <div class="subject-planner-columns">
-
-            <div class="planner-column">
-
-                <div class="planner-column-heading">
-                    <div>
-                        <p class="card-eyebrow">UPCOMING</p>
-                        <h3>Schedule</h3>
-                    </div>
-                    <span class="planner-count">${subject.schedule.length}</span>
-                </div>
-
-                <div
-                    id="subjectScheduleList">
-
-                    ${subject.schedule.length
-            ? subject.schedule
-                .sort(
-                    (a, b) =>
-                        a.date.localeCompare(
-                            b.date
-                        )
-                )
-                .map(
-                    scheduleHTML
-                )
-                .join("")
-            : `
-                                <div class="empty-state">
-                                    <h3>
-                                        No schedule yet
-                                    </h3>
-
-                                    <p>
-                                        Add classes, study sessions,
-                                        exams or other plans.
-                                    </p>
-                                </div>
-                            `
-        }
-
-                </div>
-
-            </div>
-
-
-            <div class="planner-column">
-
-                <div class="planner-column-heading">
-                    <div>
-                        <p class="card-eyebrow">REFERENCE</p>
-                        <h3>PDF Notes</h3>
-                    </div>
-                    <span class="planner-count">${subject.notes.length}</span>
-                </div>
-
-                <div
-                    id="subjectNotesList">
-
-                    ${subject.notes.length
-            ? subject.notes
-                .map(
-                    noteHTML
-                )
-                .join("")
-            : `
-                                <div class="empty-state">
-                                    <h3>
-                                        No PDF notes
-                                    </h3>
-
-                                    <p>
-                                        Upload PDF notes for this subject.
-                                    </p>
-                                </div>
-                            `
-        }
-
-                </div>
-
-            </div>
-
-        </div>
-
-    `;
-
-
-    document
-        .querySelector(
-            "#plannerSubjectSelect"
-        )
-        ?.addEventListener(
-            "change",
-            event => {
-
-                container.dataset.selectedSubject =
-                    event.target.value;
-
-                renderSubjectPlanner();
-
-            }
-        );
-
-
-    document
-        .querySelector(
-            "#addScheduleButton"
-        )
-        ?.addEventListener(
-            "click",
-            () => openScheduleForm(
-                selectedId
-            )
-        );
-
-
-    document
-        .querySelector(
-            "#uploadSubjectPdfButton"
-        )
-        ?.addEventListener(
-            "click",
-            () =>
-                document
-                    .querySelector(
-                        "#subjectPdfInput"
-                    )
-                    ?.click()
-        );
-
-
-    document
-        .querySelector(
-            "#subjectPdfInput"
-        )
-        ?.addEventListener(
-            "change",
-            event =>
-                handlePdfUpload(
-                    selectedId,
-                    event
-                )
-        );
-
 }
 
+function openSubjectWorkspace(subjectId) {
+    const subject = subjects.find(item => item.id === subjectId);
+    if (!subject) return;
+
+    activeSubjectWorkspaceId = subjectId;
+    renderSubjectWorkspace();
+    openModal("#subjectWorkspaceModal");
+}
+
+function closeSubjectWorkspace() {
+    closeModal("#subjectWorkspaceModal");
+    activeSubjectWorkspaceId = null;
+}
+
+document.querySelector("#closeSubjectWorkspace")?.addEventListener("click", closeSubjectWorkspace);
+document.querySelector("#workspaceAddSchedule")?.addEventListener("click", () => {
+    if (activeSubjectWorkspaceId) openScheduleForm(activeSubjectWorkspaceId);
+});
+document.querySelector("#workspaceAddPdf")?.addEventListener("click", () => {
+    document.querySelector("#workspacePdfInput")?.click();
+});
+document.querySelector("#workspacePdfInput")?.addEventListener("change", event => {
+    if (activeSubjectWorkspaceId) handlePdfUpload(activeSubjectWorkspaceId, event);
+});
 
 function scheduleHTML(schedule) {
     const type = String(schedule.type || "other").toLowerCase();
     const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
-    const reminderDays = Math.max(1, Number(settings.deadlineReminderDays) || 3);
     const startTime = schedule.startTime || schedule.time || "";
     const endTime = schedule.endTime || "";
     const timeLabel = startTime && endTime ? `${startTime} – ${endTime}` : startTime;
@@ -3770,8 +3422,8 @@ function scheduleHTML(schedule) {
                 <div class="schedule-meta-row">
                     <span>${escapeHTML(formatDate(schedule.date))}</span>
                     ${timeLabel ? `<span>• ${escapeHTML(timeLabel)}</span>` : ""}
-                    <span class="schedule-reminder-pill">⏰ ${reminderDays}d</span>
                 </div>
+                ${schedule.notes ? `<p class="schedule-notes">${escapeHTML(schedule.notes)}</p>` : ""}
             </div>
             <div class="schedule-actions">
                 <button type="button" class="schedule-edit-button" data-schedule-edit="${escapeHTML(schedule.id)}" aria-label="Edit ${escapeHTML(schedule.title)}" title="Edit schedule">
@@ -3785,58 +3437,9 @@ function scheduleHTML(schedule) {
     `;
 }
 
-function noteHTML(note) {
-
-    return `
-
-        <div class="schedule-item">
-
-            <div>
-
-                <strong>
-                    ${escapeHTML(
-        note.name
-    )}
-                </strong>
-
-                <small>
-                    ${formatBytes(
-        note.size
-    )}
-
-                    ·
-                    ${formatDate(
-        note.createdAt.slice(0, 10)
-    )}
-                </small>
-
-            </div>
-
-            <div>
-
-                <button
-                    type="button"
-                    class="small-button"
-                    data-pdf-open="${escapeHTML(note.id)}">
-                    Open
-                </button>
-
-                <button
-                    type="button"
-                    class="task-delete"
-                    data-pdf-delete="${escapeHTML(note.id)}"
-                    aria-label="Delete PDF">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v6m4-6v6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-
-            </div>
-
-        </div>
-
-    `;
-
-}
-
+/* =========================================================
+   SCHEDULE FORM
+========================================================= */
 
 function openScheduleForm(subjectId, scheduleId = null) {
     const existing = document.querySelector("#scheduleModal");
@@ -3859,17 +3462,16 @@ function openScheduleForm(subjectId, scheduleId = null) {
         <div class="modal schedule-modal">
             <div class="modal-header">
                 <div>
-                    <p class="card-eyebrow">SUBJECT PLANNER</p>
+                    <p class="card-eyebrow">SCHEDULE</p>
                     <h2>${isEditing ? "Edit Schedule" : "Add Schedule"}</h2>
+                    <p>${escapeHTML(subject.name)}</p>
                 </div>
-                <button type="button" class="close-modal" id="closeScheduleModal" aria-label="Close">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
-                </button>
+                <button type="button" class="close-modal" id="closeScheduleModal" aria-label="Close">×</button>
             </div>
             <form id="scheduleForm">
                 <div class="form-group">
                     <label for="scheduleTitle">Title</label>
-                    <input id="scheduleTitle" type="text" required maxlength="120" autocomplete="off" value="${escapeHTML(existingSchedule?.title || "")}" placeholder="Schedule title">
+                    <input id="scheduleTitle" type="text" required maxlength="120" autocomplete="off" value="${escapeHTML(existingSchedule?.title || "")}" placeholder="e.g. Mathematics lecture">
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -3889,14 +3491,19 @@ function openScheduleForm(subjectId, scheduleId = null) {
                 </div>
                 <div class="form-row schedule-time-row">
                     <div class="form-group">
-                        <label for="scheduleStartTime">Start</label>
+                        <label for="scheduleStartTime">Start time</label>
                         <input id="scheduleStartTime" type="time" value="${escapeHTML(startTime)}">
                     </div>
                     <div class="form-group">
-                        <label for="scheduleEndTime">End</label>
+                        <label for="scheduleEndTime">End time</label>
                         <input id="scheduleEndTime" type="time" value="${escapeHTML(endTime)}">
                     </div>
                 </div>
+                <div class="form-group">
+                    <label for="scheduleNotes">Notes <span class="optional-label">Optional</span></label>
+                    <textarea id="scheduleNotes" rows="3" maxlength="500" placeholder="Room, chapter, preparation, or anything you need to remember">${escapeHTML(existingSchedule?.notes || "")}</textarea>
+                </div>
+                <div class="schedule-form-hint">This schedule stays inside the subject and syncs to your account.</div>
                 <button type="submit" class="submit-task">${isEditing ? "Save Changes" : "Add Schedule"}</button>
             </form>
         </div>
@@ -3914,6 +3521,7 @@ function openScheduleForm(subjectId, scheduleId = null) {
         const startTime = document.querySelector("#scheduleStartTime")?.value || "";
         const endTime = document.querySelector("#scheduleEndTime")?.value || "";
         const type = document.querySelector("#scheduleType")?.value || "other";
+        const notes = document.querySelector("#scheduleNotes")?.value.trim() || "";
 
         if (!title || !date) {
             showToast("Enter a title and date.", "error");
@@ -3936,6 +3544,7 @@ function openScheduleForm(subjectId, scheduleId = null) {
             startTime,
             endTime,
             type,
+            notes,
             createdAt: existingSchedule?.createdAt || now,
             updatedAt: now
         };
@@ -3951,327 +3560,130 @@ function openScheduleForm(subjectId, scheduleId = null) {
         saveData();
         close();
         renderSubjects();
-        renderSubjectPlanner();
+        if (activeSubjectWorkspaceId === subjectId) renderSubjectWorkspace();
+        showToast(isEditing ? "Schedule updated." : "Schedule added.", "success");
     });
 }
 
-document.addEventListener(
-    "click",
-    async event => {
-
-        const editButton = event.target.closest("[data-schedule-edit]");
-        if (editButton) {
-            const container = document.querySelector("#subjectPlannerContent");
-            const subjectId = container?.dataset.selectedSubject;
-            if (subjectId) openScheduleForm(subjectId, editButton.dataset.scheduleEdit);
-            return;
+document.addEventListener("click", async event => {
+    const editButton = event.target.closest("[data-schedule-edit]");
+    if (editButton) {
+        if (activeSubjectWorkspaceId) {
+            openScheduleForm(activeSubjectWorkspaceId, editButton.dataset.scheduleEdit);
         }
-
-        const button =
-            event.target.closest(
-                "[data-schedule-delete]"
-            );
-
-        if (!button) {
-            return;
-        }
-
-
-        const container =
-            document.querySelector(
-                "#subjectPlannerContent"
-            );
-
-        const subjectId =
-            container?.dataset
-                .selectedSubject;
-
-
-        const subject =
-            subjects.find(
-                item =>
-                    item.id ===
-                    subjectId
-            );
-
-
-        if (!subject) {
-            return;
-        }
-
-
-        if (!(await confirmAction("Delete this schedule item?"))) {
-            return;
-        }
-
-
-        subject.schedule =
-            subject.schedule.filter(
-                item =>
-                    item.id !==
-                    button.dataset.scheduleDelete
-            );
-
-
-        saveData();
-
-        renderSubjectPlanner();
-
+        return;
     }
-);
 
+    const deleteButton = event.target.closest("[data-schedule-delete]");
+    if (!deleteButton) return;
+
+    const subject = getActiveSubjectWorkspace();
+    if (!subject) return;
+
+    if (!(await confirmAction("Delete this schedule item?"))) return;
+
+    subject.schedule = (subject.schedule || []).filter(item => item.id !== deleteButton.dataset.scheduleDelete);
+    saveData();
+    renderSubjects();
+    renderSubjectWorkspace();
+});
+
+function noteHTML(note) {
+    return `
+        <div class="schedule-item pdf-resource-item">
+            <div class="pdf-note-info">
+                <strong title="${escapeHTML(note.name)}">${escapeHTML(note.name)}</strong>
+                <small>${formatBytes(note.size)} · ${formatDate(String(note.createdAt || "").slice(0, 10))}</small>
+            </div>
+            <div class="pdf-note-actions">
+                <button type="button" class="small-button" data-pdf-open="${escapeHTML(note.id)}">Open</button>
+                <button type="button" class="small-button" data-pdf-download="${escapeHTML(note.id)}">Download</button>
+                <button type="button" class="task-delete" data-pdf-delete="${escapeHTML(note.id)}" aria-label="Delete PDF" title="Delete PDF">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v6m4-6v6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </div>
+        </div>
+    `;
+}
 
 /* =========================================================
-   PDF NOTES
+   PDF STORAGE
+   IndexedDB is retained as a local fallback. PostgreSQL is primary.
 ========================================================= */
 
-/*
-    PDF files are stored using IndexedDB rather than
-    localStorage. This prevents large PDFs from filling
-    localStorage immediately.
-*/
-
-const PDF_DB_NAME =
-    "AceArchPDFDatabase";
-
-const PDF_STORE_NAME =
-    "notes";
-
+const PDF_DB_NAME = "AceArchPDFDatabase";
+const PDF_STORE_NAME = "notes";
 
 function openPdfDatabase() {
-
-    return new Promise(
-        (resolve, reject) => {
-
-            if (
-                !("indexedDB" in window)
-            ) {
-
-                reject(
-                    new Error(
-                        "IndexedDB is not supported."
-                    )
-                );
-
-                return;
-
-            }
-
-
-            const request =
-                indexedDB.open(
-                    PDF_DB_NAME,
-                    1
-                );
-
-
-            request.onupgradeneeded =
-                event => {
-
-                    const db =
-                        event.target.result;
-
-                    if (
-                        !db.objectStoreNames
-                            .contains(
-                                PDF_STORE_NAME
-                            )
-                    ) {
-
-                        db.createObjectStore(
-                            PDF_STORE_NAME,
-                            {
-                                keyPath: "id"
-                            }
-                        );
-
-                    }
-
-                };
-
-
-            request.onsuccess =
-                () =>
-                    resolve(
-                        request.result
-                    );
-
-
-            request.onerror =
-                () =>
-                    reject(
-                        request.error
-                    );
-
+    return new Promise((resolve, reject) => {
+        if (!("indexedDB" in window)) {
+            reject(new Error("IndexedDB is not supported."));
+            return;
         }
-    );
-
+        const request = indexedDB.open(PDF_DB_NAME, 1);
+        request.onupgradeneeded = event => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(PDF_STORE_NAME)) {
+                db.createObjectStore(PDF_STORE_NAME, { keyPath: "id" });
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
 }
-
 
 async function storePdfFile(fileRecord) {
-
-    const db =
-        await openPdfDatabase();
-
-
-    return new Promise(
-        (resolve, reject) => {
-
-            const transaction =
-                db.transaction(
-                    PDF_STORE_NAME,
-                    "readwrite"
-                );
-
-
-            transaction
-                .objectStore(
-                    PDF_STORE_NAME
-                )
-                .put(fileRecord);
-
-
-            transaction.oncomplete =
-                () => {
-
-                    db.close();
-
-                    resolve();
-
-                };
-
-
-            transaction.onerror =
-                () => {
-
-                    db.close();
-
-                    reject(
-                        transaction.error
-                    );
-
-                };
-
-        }
-    );
-
+    const db = await openPdfDatabase();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(PDF_STORE_NAME, "readwrite");
+        transaction.objectStore(PDF_STORE_NAME).put(fileRecord);
+        transaction.oncomplete = () => { db.close(); resolve(); };
+        transaction.onerror = () => { db.close(); reject(transaction.error); };
+    });
 }
-
 
 async function getPdfFile(id) {
-
-    const db =
-        await openPdfDatabase();
-
-
-    return new Promise(
-        (resolve, reject) => {
-
-            const request =
-                db
-                    .transaction(
-                        PDF_STORE_NAME,
-                        "readonly"
-                    )
-                    .objectStore(
-                        PDF_STORE_NAME
-                    )
-                    .get(id);
-
-
-            request.onsuccess =
-                () => {
-
-                    db.close();
-
-                    resolve(
-                        request.result
-                    );
-
-                };
-
-
-            request.onerror =
-                () => {
-
-                    db.close();
-
-                    reject(
-                        request.error
-                    );
-
-                };
-
-        }
-    );
-
+    const db = await openPdfDatabase();
+    return new Promise((resolve, reject) => {
+        const request = db.transaction(PDF_STORE_NAME, "readonly").objectStore(PDF_STORE_NAME).get(id);
+        request.onsuccess = () => { db.close(); resolve(request.result); };
+        request.onerror = () => { db.close(); reject(request.error); };
+    });
 }
-
 
 async function deletePdfFile(id) {
-
-    const db =
-        await openPdfDatabase();
-
-
-    return new Promise(
-        (resolve, reject) => {
-
-            const transaction =
-                db.transaction(
-                    PDF_STORE_NAME,
-                    "readwrite"
-                );
-
-
-            transaction
-                .objectStore(
-                    PDF_STORE_NAME
-                )
-                .delete(id);
-
-
-            transaction.oncomplete =
-                () => {
-
-                    db.close();
-
-                    resolve();
-
-                };
-
-
-            transaction.onerror =
-                () => {
-
-                    db.close();
-
-                    reject(
-                        transaction.error
-                    );
-
-                };
-
-        }
-    );
-
+    const db = await openPdfDatabase();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(PDF_STORE_NAME, "readwrite");
+        transaction.objectStore(PDF_STORE_NAME).delete(id);
+        transaction.oncomplete = () => { db.close(); resolve(); };
+        transaction.onerror = () => { db.close(); reject(transaction.error); };
+    });
 }
 
+async function getAllLocalPdfFiles() {
+    try {
+        const db = await openPdfDatabase();
+        return await new Promise((resolve, reject) => {
+            const request = db.transaction(PDF_STORE_NAME, "readonly").objectStore(PDF_STORE_NAME).getAll();
+            request.onsuccess = () => { db.close(); resolve(Array.isArray(request.result) ? request.result : []); };
+            request.onerror = () => { db.close(); reject(request.error); };
+        });
+    } catch {
+        return [];
+    }
+}
 
 async function deletePdfsForSubjects(subjectIds) {
     if (!Array.isArray(subjectIds) || !subjectIds.length) return;
-
     try {
         const db = await openPdfDatabase();
         await new Promise((resolve, reject) => {
             const transaction = db.transaction(PDF_STORE_NAME, "readwrite");
             const store = transaction.objectStore(PDF_STORE_NAME);
             const request = store.getAll();
-
             request.onsuccess = () => {
-                const records = Array.isArray(request.result) ? request.result : [];
-                records.forEach(record => {
+                (request.result || []).forEach(record => {
                     if (subjectIds.includes(record.subjectId)) store.delete(record.id);
                 });
             };
@@ -4281,561 +3693,305 @@ async function deletePdfsForSubjects(subjectIds) {
         });
         db.close();
     } catch (error) {
-        console.warn("Could not remove account PDF files:", error);
+        console.warn("Could not remove local account PDF files:", error);
     }
 }
 
-async function handlePdfUpload(
-    subjectId,
-    event
-) {
+async function uploadPdfToServer(record) {
+    const token = getAuthToken();
+    if (!token || !record?.blob) throw new Error("Authentication required.");
 
-    const file =
-        event.target.files?.[0];
+    const subjectId = encodeURIComponent(record.subjectId || "");
+    const name = encodeURIComponent(record.name || "AceArch document.pdf");
+    const response = await fetch(`/api/pdfs/${encodeURIComponent(record.id)}?subjectId=${subjectId}&name=${name}`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/pdf",
+            "Authorization": `Bearer ${token}`
+        },
+        body: record.blob
+    });
 
-
-    if (!file) {
-        return;
+    if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || `PDF upload failed: ${response.status}`);
     }
+    return true;
+}
 
+async function fetchServerPdf(id) {
+    const token = getAuthToken();
+    if (!token) return null;
+    const response = await fetch(`/api/pdfs/${encodeURIComponent(id)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store"
+    });
+    if (!response.ok) return null;
+    return await response.blob();
+}
 
-    if (
-        file.type !==
-        "application/pdf"
-    ) {
+async function downloadPdfFromServer(id, name) {
+    const blob = await fetchServerPdf(id);
+    if (!blob) return false;
 
-        showToast(
-            "Only PDF files are allowed.",
-            "error"
-        );
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = name || "AceArch-document.pdf";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return true;
+}
 
+async function openPdfById(id) {
+    try {
+        let blob = await fetchServerPdf(id);
+
+        if (!blob) {
+            const localRecord = await getPdfFile(id);
+            blob = localRecord?.blob || null;
+        }
+
+        if (!blob) {
+            showToast("PDF could not be found on this device or in the cloud.", "error");
+            return;
+        }
+
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank", "noopener");
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+        console.error("Could not open PDF:", error);
+        showToast("Could not open PDF.", "error");
+    }
+}
+
+async function handlePdfUpload(subjectId, event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+        showToast("Only PDF files are allowed.", "error");
         event.target.value = "";
-
         return;
-
     }
 
-
-    /*
-        25 MB safety limit for this browser version.
-    */
-
-    const maxSize =
-        25 * 1024 * 1024;
-
-
-    if (
-        file.size >
-        maxSize
-    ) {
-
-        showToast(
-            "PDF must be smaller than 25 MB.",
-            "error"
-        );
-
+    const maxSize = 25 * 1024 * 1024;
+    if (file.size > maxSize) {
+        showToast("PDF must be smaller than 25 MB.", "error");
         event.target.value = "";
-
-        return;
-
-    }
-
-
-    const subject =
-        subjects.find(
-            item =>
-                item.id === subjectId
-        );
-
-
-    if (!subject) {
         return;
     }
 
+    const subject = subjects.find(item => item.id === subjectId);
+    if (!subject) return;
+    if (!Array.isArray(subject.notes)) subject.notes = [];
 
-    if (
-        !Array.isArray(
-            subject.notes
-        )
-    ) {
-
-        subject.notes = [];
-
-    }
-
-
-    const id =
-        createId();
-
+    const id = createId();
+    const createdAt = new Date().toISOString();
+    const record = {
+        id,
+        blob: file,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        subjectId,
+        createdAt
+    };
 
     try {
+        // Always keep a local copy first so the existing offline behavior remains safe.
+        await storePdfFile(record);
 
-        await storePdfFile({
-
-            id,
-
-            blob: file,
-
-            name: file.name,
-
-            type: file.type,
-
-            size: file.size,
-
-            subjectId,
-
-            createdAt:
-                new Date().toISOString()
-
-        });
-
+        let cloudSaved = false;
+        try {
+            cloudSaved = await uploadPdfToServer(record);
+        } catch (serverError) {
+            console.warn("Cloud PDF upload failed; keeping local copy:", serverError);
+        }
 
         subject.notes.push({
-
             id,
-
             name: file.name,
-
             size: file.size,
-
-            createdAt:
-                new Date().toISOString()
-
+            createdAt
         });
-
 
         saveData();
 
-        renderSubjectPlanner();
+        if (activeSubjectWorkspaceId === subjectId) {
+            renderSubjectWorkspace();
+        }
 
         showToast(
-            "PDF note added.",
-            "success"
+            cloudSaved
+                ? "PDF uploaded and synced across devices."
+                : "PDF saved on this device. It will sync when the server is available.",
+            cloudSaved ? "success" : "info"
         );
-
     } catch (error) {
-
-        console.error(
-            "PDF upload error:",
-            error
-        );
-
-        showToast(
-            "Could not save the PDF.",
-            "error"
-        );
-
+        console.error("PDF upload error:", error);
+        showToast("Could not save the PDF.", "error");
     }
-
 
     event.target.value = "";
-
 }
 
+async function syncLocalPdfsToServer() {
+    const token = getAuthToken();
+    const userId = getAuthUser()?.id;
+    if (!token || !userId) return;
 
-function formatBytes(bytes) {
+    try {
+        const localFiles = await getAllLocalPdfFiles();
+        if (!localFiles.length) return;
 
-    if (!bytes) {
-        return "0 KB";
+        const results = await Promise.allSettled(localFiles.map(async record => {
+            try {
+                await uploadPdfToServer(record);
+                return record.id;
+            } catch {
+                return null;
+            }
+        }));
+
+        const synced = results.filter(result => result.status === "fulfilled" && result.value).length;
+        if (synced) console.info(`AceArch synced ${synced} local PDF file(s) to PostgreSQL.`);
+    } catch (error) {
+        console.warn("PDF background sync skipped:", error);
     }
-
-    const units = [
-        "Bytes",
-        "KB",
-        "MB",
-        "GB"
-    ];
-
-    let size =
-        Number(bytes);
-
-    let index = 0;
-
-
-    while (
-        size >= 1024 &&
-        index <
-        units.length - 1
-    ) {
-
-        size /= 1024;
-
-        index++;
-
-    }
-
-
-    return `${size.toFixed(
-        index === 0 ? 0 : 1
-    )} ${units[index]}`;
-
 }
 
-
-document.addEventListener(
-    "click",
-    async event => {
-
-        const openButton =
-            event.target.closest(
-                "[data-pdf-open]"
-            );
-
-
-        if (openButton) {
-
-            try {
-
-                const record =
-                    await getPdfFile(
-                        openButton.dataset.pdfOpen
-                    );
-
-
-                if (
-                    !record?.blob
-                ) {
-
-                    showToast(
-                        "PDF could not be found.",
-                        "error"
-                    );
-
-                    return;
-
-                }
-
-
-                const url =
-                    URL.createObjectURL(
-                        record.blob
-                    );
-
-
-                window.open(
-                    url,
-                    "_blank",
-                    "noopener"
-                );
-
-
-                setTimeout(
-                    () =>
-                        URL.revokeObjectURL(
-                            url
-                        ),
-                    60000
-                );
-
-            } catch (error) {
-
-                console.error(error);
-
-                showToast(
-                    "Could not open PDF.",
-                    "error"
-                );
-
-            }
-
-            return;
-
-        }
-
-
-        const deleteButton =
-            event.target.closest(
-                "[data-pdf-delete]"
-            );
-
-
-        if (
-            deleteButton
-        ) {
-
-            const container =
-                document.querySelector(
-                    "#subjectPlannerContent"
-                );
-
-
-            const subjectId =
-                container?.dataset
-                    .selectedSubject;
-
-
-            const subject =
-                subjects.find(
-                    item =>
-                        item.id ===
-                        subjectId
-                );
-
-
-            if (!subject) {
-                return;
-            }
-
-
-            const note =
-                subject.notes.find(
-                    item =>
-                        item.id ===
-                        deleteButton.dataset
-                            .pdfDelete
-                );
-
-
-            if (!note) {
-                return;
-            }
-
-
-            if (!(await confirmAction(`Delete "${note.name}"?`))) {
-                return;
-            }
-
-
-            try {
-
-                await deletePdfFile(
-                    note.id
-                );
-
-            } catch (error) {
-
-                console.warn(
-                    "PDF deletion warning:",
-                    error
-                );
-
-            }
-
-
-            subject.notes =
-                subject.notes.filter(
-                    item =>
-                        item.id !==
-                        note.id
-                );
-
-
-            saveData();
-
-            renderSubjectPlanner();
-
-            showToast(
-                "PDF note deleted.",
-                "success"
-            );
-
-        }
-
+document.addEventListener("click", async event => {
+    const openButton = event.target.closest("[data-pdf-open]");
+    if (openButton) {
+        await openPdfById(openButton.dataset.pdfOpen);
+        return;
     }
-);
 
+    const downloadButton = event.target.closest("[data-pdf-download]");
+    if (downloadButton) {
+        const noteId = downloadButton.dataset.pdfDownload;
+        const subject = getActiveSubjectWorkspace();
+        const note = subject?.notes?.find(item => item.id === noteId);
+        const ok = await downloadPdfFromServer(noteId, note?.name);
+        if (!ok) {
+            try {
+                const localRecord = await getPdfFile(noteId);
+                if (!localRecord?.blob) throw new Error("missing");
+                const url = URL.createObjectURL(localRecord.blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = note?.name || localRecord.name || "AceArch-document.pdf";
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 60000);
+            } catch {
+                showToast("PDF download failed.", "error");
+                return;
+            }
+        }
+        showToast("PDF download started.", "success");
+        return;
+    }
+
+    const deleteButton = event.target.closest("[data-pdf-delete]");
+    if (!deleteButton) return;
+
+    const subject = getActiveSubjectWorkspace();
+    if (!subject) return;
+    const note = (subject.notes || []).find(item => item.id === deleteButton.dataset.pdfDelete);
+    if (!note) return;
+
+    if (!(await confirmAction(`Delete "${note.name}"?`))) return;
+
+    try {
+        const token = getAuthToken();
+        if (token) {
+            await fetch(`/api/pdfs/${encodeURIComponent(note.id)}`, {
+                method: "DELETE",
+                headers: { Authorization: `Bearer ${token}` }
+            });
+        }
+    } catch (error) {
+        console.warn("Cloud PDF deletion warning:", error);
+    }
+
+    try {
+        await deletePdfFile(note.id);
+    } catch (error) {
+        console.warn("Local PDF deletion warning:", error);
+    }
+
+    subject.notes = subject.notes.filter(item => item.id !== note.id);
+    saveData();
+    renderSubjects();
+    renderSubjectWorkspace();
+    showToast("PDF removed.", "success");
+});
 
 /* =========================================================
    SUBJECT CARDS
 ========================================================= */
 
 function renderSubjects() {
+    const grid = document.querySelector("#subjectsGrid");
+    const empty = document.querySelector("#subjectsEmpty");
+    if (!grid) return;
 
-    const grid =
-        document.querySelector(
-            "#subjectsGrid"
-        );
+    grid.innerHTML = subjects.map(subject => {
+        const taskCount = tasks.filter(task => task.subject === subject.name).length;
+        const scheduleCount = Array.isArray(subject.schedule) ? subject.schedule.length : 0;
+        const noteCount = Array.isArray(subject.notes) ? subject.notes.length : 0;
+        const subjectColor = subject.color || "#f97316";
 
-    const empty =
-        document.querySelector(
-            "#subjectsEmpty"
-        );
+        return `
+            <article class="subject-card" data-subject-id="${escapeHTML(subject.id)}" style="--subject-color:${escapeHTML(subjectColor)}">
+                <div class="subject-card-top">
+                    <span class="subject-color" style="background:${escapeHTML(subjectColor)}"></span>
+                    <span class="subject-card-label">SUBJECT</span>
+                </div>
+                <h3>${escapeHTML(subject.name)}</h3>
+                <p>${taskCount} ${taskCount === 1 ? "task" : "tasks"}</p>
+                <div class="subject-card-stats">
+                    <span>◷ ${scheduleCount} schedule${scheduleCount === 1 ? "" : "s"}</span>
+                    <span>▱ ${noteCount} PDF${noteCount === 1 ? "" : "s"}</span>
+                </div>
+                <div class="subject-card-actions">
+                    <button type="button" class="small-button" data-subject-open="${escapeHTML(subject.id)}">Manage</button>
+                    <button type="button" class="small-button" data-subject-edit="${escapeHTML(subject.id)}">Edit</button>
+                    <button type="button" class="task-delete" data-subject-delete="${escapeHTML(subject.id)}">Delete</button>
+                </div>
+            </article>
+        `;
+    }).join("");
 
+    if (empty) empty.style.display = subjects.length ? "none" : "flex";
+}
 
-    if (!grid) {
+document.addEventListener("click", event => {
+    const open = event.target.closest("[data-subject-open]");
+    if (open) {
+        event.preventDefault();
+        event.stopPropagation();
+        openSubjectWorkspace(open.dataset.subjectOpen);
         return;
     }
 
-
-    grid.innerHTML =
-        subjects
-            .map(subject => {
-
-                const taskCount =
-                    tasks.filter(
-                        task =>
-                            task.subject ===
-                            subject.name
-                    ).length;
-
-
-                const scheduleCount =
-                    Array.isArray(
-                        subject.schedule
-                    )
-                        ? subject.schedule.length
-                        : 0;
-
-
-                const noteCount =
-                    Array.isArray(
-                        subject.notes
-                    )
-                        ? subject.notes.length
-                        : 0;
-
-
-                return `
-
-                    <div
-                        class="subject-card"
-                        data-subject-id="${escapeHTML(subject.id)}">
-
-                        <div
-                            class="subject-color"
-                            style="background:${escapeHTML(subject.color || "#7c5cff")}">
-                        </div>
-
-                        <h3>
-                            ${escapeHTML(
-                    subject.name
-                )}
-                        </h3>
-
-                        <p>
-                            ${taskCount}
-                            ${taskCount === 1 ? "task" : "tasks"}
-                        </p>
-
-                        <small>
-                            ${scheduleCount}
-                            schedule
-                            ·
-                            ${noteCount}
-                            PDF
-                        </small>
-
-                        <div class="subject-card-actions">
-
-                            <button
-                                type="button"
-                                class="small-button"
-                                data-subject-edit="${escapeHTML(subject.id)}">
-                                Edit
-                            </button>
-
-                            <button
-                                type="button"
-                                class="small-button"
-                                data-subject-plan="${escapeHTML(subject.id)}">
-                                Plan
-                            </button>
-
-                            <button
-                                type="button"
-                                class="task-delete"
-                                data-subject-delete="${escapeHTML(subject.id)}">
-                                Delete
-                            </button>
-
-                        </div>
-
-                    </div>
-
-                `;
-
-            })
-            .join("");
-
-
-    if (empty) {
-
-        empty.style.display =
-            subjects.length
-                ? "none"
-                : "flex";
-
+    const edit = event.target.closest("[data-subject-edit]");
+    if (edit) {
+        editSubject(edit.dataset.subjectEdit);
+        return;
     }
 
-
-    renderSubjectPlanner();
-
-}
-
-
-document.addEventListener(
-    "click",
-    event => {
-
-        const edit =
-            event.target.closest(
-                "[data-subject-edit]"
-            );
-
-        if (edit) {
-
-            editSubject(
-                edit.dataset.subjectEdit
-            );
-
-            return;
-
-        }
-
-
-        const plan =
-            event.target.closest(
-                "[data-subject-plan]"
-            );
-
-        if (plan) {
-
-            ensureSubjectExtras();
-
-            const container =
-                document.querySelector(
-                    "#subjectPlannerContent"
-                );
-
-            if (container) {
-
-                container.dataset
-                    .selectedSubject =
-                    plan.dataset.subjectPlan;
-
-            }
-
-            renderSubjectPlanner();
-
-            document
-                .querySelector(
-                    "#subjectPlannerArea"
-                )
-                ?.scrollIntoView({
-                    behavior: "smooth",
-                    block: "start"
-                });
-
-            return;
-
-        }
-
-
-        const deleteButton =
-            event.target.closest(
-                "[data-subject-delete]"
-            );
-
-        if (deleteButton) {
-
-            deleteSubject(
-                deleteButton.dataset.subjectDelete
-            );
-
-        }
-
+    const deleteButton = event.target.closest("[data-subject-delete]");
+    if (deleteButton) {
+        deleteSubject(deleteButton.dataset.subjectDelete);
     }
-);
+});
 
 
 /* =========================================================
@@ -5108,6 +4264,20 @@ function niceChartMax(value) {
     return step * magnitude;
 }
 
+function getTaskAnalyticsDate(task) {
+    if (!task?.completed) return null;
+
+    const value = task.completedAt || task.updatedAt;
+    if (!value) return null;
+
+    // Completion timestamps are stored as UTC ISO strings. The Analytics week is
+    // based on the user's local calendar day, so never compare the raw UTC date
+    // portion with a locally generated date.
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return dateToString(date);
+}
+
 function renderAnalytics() {
     updateStats();
 
@@ -5116,7 +4286,7 @@ function renderAnalytics() {
 
     const days = getLastSevenDays();
     const taskValues = days.map(day => tasks.filter(task =>
-        task.completed && (task.completedAt || task.createdAt)?.startsWith(day.date)
+        getTaskAnalyticsDate(task) === day.date
     ).length);
     const focusValues = days.map(day => focusSessions
         .filter(session => session.date === day.date)
@@ -5145,13 +4315,13 @@ function renderAnalytics() {
     const grid = taskTicks.map(tick => {
         const yy = y(tick, taskMax);
         const label = Number.isInteger(tick) ? tick : tick.toFixed(1);
-        return `<line class="analytics-grid-line" x1="${left}" y1="${yy}" x2="${W-right}" y2="${yy}"/><text class="analytics-axis-label" x="${left-12}" y="${yy+4}" text-anchor="end">${label}</text>`;
+        return `<line class="analytics-grid-line" x1="${left}" y1="${yy}" x2="${W - right}" y2="${yy}"/><text class="analytics-axis-label" x="${left - 12}" y="${yy + 4}" text-anchor="end">${label}</text>`;
     }).join("");
 
     const rightLabels = focusTicks.map(tick => {
         const yy = y(tick, focusMax);
         const label = Number.isInteger(tick) ? tick : tick.toFixed(1);
-        return `<text class="analytics-axis-label" x="${W-right+12}" y="${yy+4}" text-anchor="start">${label}m</text>`;
+        return `<text class="analytics-axis-label" x="${W - right + 12}" y="${yy + 4}" text-anchor="start">${label}m</text>`;
     }).join("");
 
     const bars = taskValues.map((value, index) => {
@@ -5163,7 +4333,7 @@ function renderAnalytics() {
 
     const labels = days.map((day, index) => {
         const x = left + groupW * index + groupW / 2;
-        return `<text class="analytics-day-label" x="${x.toFixed(1)}" y="${H-22}" text-anchor="middle">${escapeHTML(day.label)}</text>`;
+        return `<text class="analytics-day-label" x="${x.toFixed(1)}" y="${H - 22}" text-anchor="middle">${escapeHTML(day.label)}</text>`;
     }).join("");
 
     const points = focusValues.map((value, index) => {
@@ -5176,8 +4346,8 @@ function renderAnalytics() {
         <svg class="analytics-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Last 7 days tasks and focus activity">
             <g class="analytics-grid">${grid}</g>
             <line class="analytics-axis" x1="${left}" y1="${top}" x2="${left}" y2="${baseY}"/>
-            <line class="analytics-axis" x1="${W-right}" y1="${top}" x2="${W-right}" y2="${baseY}"/>
-            <line class="analytics-axis" x1="${left}" y1="${baseY}" x2="${W-right}" y2="${baseY}"/>
+            <line class="analytics-axis" x1="${W - right}" y1="${top}" x2="${W - right}" y2="${baseY}"/>
+            <line class="analytics-axis" x1="${left}" y1="${baseY}" x2="${W - right}" y2="${baseY}"/>
             <g class="analytics-right-labels">${rightLabels}</g>
             <g class="analytics-bars-layer">${bars}</g>
             <polyline class="analytics-focus-line" points="${linePoints}" fill="none"/>
@@ -5195,16 +4365,14 @@ function renderAnalytics() {
 
     if (svg) {
         svg.classList.remove("analytics-chart-ready");
+        barsLayer.forEach((bar, index) => bar.style.setProperty("--analytics-delay", `${index * 70}ms`));
+        pointNodes.forEach((point, index) => point.style.setProperty("--analytics-delay", `${180 + index * 75}ms`));
+        line?.style.setProperty("--analytics-line-length", "1200");
         void svg.offsetWidth;
         requestAnimationFrame(() => {
-            svg.classList.add("analytics-chart-ready");
-            barsLayer.forEach((bar, index) => {
-                bar.style.setProperty("--analytics-delay", `${index * 70}ms`);
+            requestAnimationFrame(() => {
+                svg.classList.add("analytics-chart-ready");
             });
-            pointNodes.forEach((point, index) => {
-                point.style.setProperty("--analytics-delay", `${180 + index * 75}ms`);
-            });
-            line?.style.setProperty("--analytics-line-length", "1200");
         });
     }
 
@@ -5266,13 +4434,7 @@ function renderWeeklyBars() {
             day =>
                 tasks.filter(
                     task =>
-                        task.completed &&
-                        (
-                            task.completedAt ||
-                            task.createdAt
-                        )?.startsWith(
-                            day.date
-                        )
+                        getTaskAnalyticsDate(task) === day.date
                 ).length
         );
 
@@ -5378,328 +4540,41 @@ document
 
 
 function loadSettingsUI() {
-
     const user = getAuthUser();
     const accountUsername = document.querySelector("#settingsAccountUsername");
     const accountAvatar = document.querySelector("#settingsAccountAvatar");
     if (accountUsername) accountUsername.textContent = user?.username || "Account";
     if (accountAvatar) accountAvatar.textContent = (user?.username || "A").trim().charAt(0).toUpperCase() || "A";
 
-    const font =
-        document.querySelector(
-            "#fontSelector"
-        );
-
-    if (font) {
-        font.value =
-            settings.font;
-    }
-
-
-    const deadlineNotifications = document.querySelector("#deadlineNotifications");
-    if (deadlineNotifications) {
-        deadlineNotifications.checked = settings.deadlineNotifications !== false;
-    }
-
-    const reminderDays = document.querySelector("#deadlineReminderDays");
-    if (reminderDays) {
-        reminderDays.value = String(Math.max(1, Number(settings.deadlineReminderDays) || 3));
-    }
-
-    const reminderTime = document.querySelector("#deadlineReminderTime");
-    if (reminderTime) {
-        reminderTime.value = /^([01]\d|2[0-3]):[0-5]\d$/.test(settings.deadlineReminderTime || "")
-            ? settings.deadlineReminderTime
-            : "18:00";
-    }
-
-    const dailyReminders = document.querySelector("#dailyDeadlineReminders");
-    if (dailyReminders) {
-        dailyReminders.checked = settings.dailyDeadlineReminders === true;
-    }
-    const dailyReminderDays = document.querySelector("#dailyDeadlineReminderDays");
-    if (dailyReminderDays) {
-        dailyReminderDays.value = String(Math.max(1, Number(settings.dailyDeadlineReminderDays) || 3));
-    }
-    updateDailyReminderDaysVisibility();
-
-
+    const font = document.querySelector("#fontSelector");
+    if (font) font.value = settings.font;
     applyCustomization();
-
 }
-
 
 function applyCustomization() {
+    const accent = settings.accent || defaultSettings.accent;
+    const font = settings.font || defaultSettings.font;
+    document.documentElement.style.setProperty("--accent", accent);
+    document.documentElement.style.setProperty("--app-font", `"${font.replace(/"/g, "\\\"")}"`);
+    document.body.style.fontFamily = `"${font.replace(/"/g, "\\\"")}", system-ui, sans-serif`;
 
-    document.documentElement.style
-        .setProperty(
-            "--accent",
-            settings.accent
-        );
-
-
-    document.body.style.fontFamily =
-        settings.font;
-
-
-    document.body.dataset.density =
-        settings.density;
-
-
-    /*
-        Proper system theme support.
-    */
-
-    if (
-        settings.theme === "system"
-    ) {
-
-        const prefersLight =
-            window.matchMedia &&
-            window.matchMedia(
-                "(prefers-color-scheme: light)"
-            ).matches;
-
-
-        document.body.classList.toggle(
-            "light",
-            prefersLight
-        );
-
+    if (settings.theme === "system") {
+        const prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+        document.body.classList.toggle("light", prefersLight);
     } else {
-
-        document.body.classList.toggle(
-            "light",
-            settings.theme === "light"
-        );
-
+        document.body.classList.toggle("light", settings.theme === "light");
     }
 
-
-    document
-        .querySelectorAll(
-            ".color-choice"
-        )
-        .forEach(button => {
-
-            button.classList.toggle(
-                "selected",
-                button.dataset.color ===
-                settings.accent
-            );
-
-        });
-
-
-    document
-        .querySelectorAll(
-            "[data-theme]"
-        )
-        .forEach(button => {
-
-            button.classList.toggle(
-                "selected",
-                button.dataset.theme ===
-                settings.theme
-            );
-
-        });
-
-
-    document
-        .querySelectorAll(
-            "[data-density]"
-        )
-        .forEach(button => {
-
-            button.classList.toggle(
-                "selected",
-                button.dataset.density ===
-                settings.density
-            );
-
-        });
-
+    document.querySelectorAll(".color-choice").forEach(button => {
+        button.classList.toggle("selected", button.dataset.color === accent);
+    });
+    document.querySelectorAll("[data-theme]").forEach(button => {
+        button.classList.toggle("selected", button.dataset.theme === settings.theme);
+    });
 
     updateCurrentDate();
-
     renderCalendar();
-
 }
-
-
-document
-    .querySelectorAll(
-        "[data-theme]"
-    )
-    .forEach(button => {
-
-        button.addEventListener(
-            "click",
-            () => {
-
-                settings.theme =
-                    button.dataset.theme;
-
-                saveData();
-
-                applyCustomization();
-
-            }
-        );
-
-    });
-
-
-document
-    .querySelectorAll(
-        ".color-choice"
-    )
-    .forEach(button => {
-
-        button.addEventListener(
-            "click",
-            () => {
-
-                settings.accent =
-                    button.dataset.color;
-
-                saveData();
-
-                applyCustomization();
-
-            }
-        );
-
-    });
-
-
-document
-    .querySelector(
-        "#fontSelector"
-    )
-    ?.addEventListener(
-        "change",
-        event => {
-
-            settings.font =
-                event.target.value;
-
-            saveData();
-
-            applyCustomization();
-
-        }
-    );
-
-
-document
-    .querySelectorAll(
-        "[data-density]"
-    )
-    .forEach(button => {
-
-        button.addEventListener(
-            "click",
-            () => {
-
-                settings.density =
-                    button.dataset.density;
-
-                saveData();
-
-                applyCustomization();
-
-            }
-        );
-
-    });
-
-
-
-
-function normalizeReminderDaysValue(input, fallback = 3) {
-    const parsed = Number.parseInt(input?.value, 10);
-    const value = Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
-    if (input) input.value = String(value);
-    return value;
-}
-
-function updateDailyReminderDaysVisibility() {
-    const field = document.querySelector("#dailyReminderDaysField");
-    const checkbox = document.querySelector("#dailyDeadlineReminders");
-    if (!field || !checkbox) return;
-    field.classList.toggle("hidden", !checkbox.checked);
-}
-
-document.querySelector("#deadlineNotifications")?.addEventListener("change", async event => {
-    settings.deadlineNotifications = event.target.checked;
-    saveData();
-    if (event.target.checked) {
-        await requestDesktopNotificationPermission();
-        checkScheduledReminders();
-    }
-});
-
-document.querySelector("#deadlineReminderDays")?.addEventListener("change", event => {
-    settings.deadlineReminderDays = normalizeReminderDaysValue(event.target, 3);
-    saveData();
-    checkScheduledReminders();
-});
-
-document.querySelector("#deadlineReminderDays")?.addEventListener("blur", event => {
-    settings.deadlineReminderDays = normalizeReminderDaysValue(event.target, 3);
-    saveData();
-});
-
-document.querySelector("#deadlineReminderTime")?.addEventListener("change", event => {
-    settings.deadlineReminderTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(event.target.value)
-        ? event.target.value
-        : "18:00";
-    saveData();
-    checkScheduledReminders();
-});
-
-document.querySelector("#dailyDeadlineReminders")?.addEventListener("change", event => {
-    settings.dailyDeadlineReminders = event.target.checked;
-    updateDailyReminderDaysVisibility();
-    saveData();
-    checkScheduledReminders();
-});
-
-document.querySelector("#dailyDeadlineReminderDays")?.addEventListener("change", event => {
-    settings.dailyDeadlineReminderDays = normalizeReminderDaysValue(event.target, 3);
-    saveData();
-    checkScheduledReminders();
-});
-
-document.querySelector("#dailyDeadlineReminderDays")?.addEventListener("blur", event => {
-    settings.dailyDeadlineReminderDays = normalizeReminderDaysValue(event.target, 3);
-    saveData();
-});
-
-document.addEventListener("click", event => {
-    const button = event.target.closest("[data-stepper-target]");
-    if (!button) return;
-    const input = document.getElementById(button.dataset.stepperTarget);
-    if (!input) return;
-    const current = Math.max(1, Number.parseInt(input.value, 10) || 1);
-    const direction = button.dataset.stepperDirection === "up" ? 1 : -1;
-    const next = direction > 0 ? (current < 7 ? current + 1 : current) : Math.max(1, current - 1);
-    input.value = String(next);
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-});
-
-document.addEventListener("wheel", event => {
-    const input = event.target.closest("#deadlineReminderDays, #dailyDeadlineReminderDays");
-    if (!input || event.deltaY === 0) return;
-    event.preventDefault();
-    const current = Math.max(1, Number.parseInt(input.value, 10) || 1);
-    const direction = event.deltaY < 0 ? 1 : -1;
-    const next = direction > 0 ? (current < 7 ? current + 1 : current) : Math.max(1, current - 1);
-    input.value = String(next);
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-}, { passive: false });
 
 
 document
@@ -5719,9 +4594,6 @@ document
             settings.font =
                 defaultSettings.font;
 
-            settings.density =
-                defaultSettings.density;
-
             saveData();
 
             loadSettingsUI();
@@ -5736,6 +4608,166 @@ document
 
 
 
+
+
+
+// Customization controls
+document.querySelectorAll(".color-choice").forEach(button => {
+    button.addEventListener("click", () => {
+        const color = button.dataset.color;
+        if (!color) return;
+        settings.accent = color;
+        saveData();
+        applyCustomization();
+        loadSettingsUI();
+    });
+});
+
+document.querySelectorAll("[data-theme]").forEach(button => {
+    button.addEventListener("click", () => {
+        const theme = button.dataset.theme;
+        if (!theme) return;
+        settings.theme = theme;
+        saveData();
+        applyCustomization();
+        loadSettingsUI();
+    });
+});
+
+document.getElementById("fontSelector")?.addEventListener("change", event => {
+    settings.font = event.target.value;
+    saveData();
+    applyCustomization();
+    loadSettingsUI();
+});
+
+/* =========================================================
+   PASSWORD RESET MODAL
+========================================================= */
+
+function updateResetPasswordToggle(button) {
+    const targetId = button?.dataset.passwordTarget;
+    const password = targetId ? document.getElementById(targetId) : null;
+    if (!password || !button) return;
+
+    const visible = password.type === "text";
+    button.setAttribute("aria-pressed", String(visible));
+    button.setAttribute("aria-label", visible ? "Hide password" : "Show password");
+    button.innerHTML = visible
+        ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.2A10.8 10.8 0 0 1 12 5c5.1 0 8.8 4.2 10 7a12 12 0 0 1-3.2 4.6M6.2 6.3C4.3 7.9 2.9 9.9 2 12c1.2 2.8 5 7 10 7 1.2 0 2.4-.2 3.4-.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+        : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>`;
+}
+
+document.querySelectorAll("[data-password-target]").forEach(button => {
+    updateResetPasswordToggle(button);
+    button.addEventListener("click", () => {
+        const password = document.getElementById(button.dataset.passwordTarget);
+        if (!password) return;
+        password.type = password.type === "password" ? "text" : "password";
+        updateResetPasswordToggle(button);
+        password.focus();
+        password.setSelectionRange(password.value.length, password.value.length);
+    });
+});
+
+document.getElementById("openResetPassword")?.addEventListener("click", () => {
+    const form = document.getElementById("resetPasswordForm");
+    form?.reset();
+    const message = document.getElementById("resetPasswordMessage");
+    if (message) {
+        message.textContent = "";
+        message.classList.remove("success");
+    }
+    document.querySelectorAll("#resetPasswordModal [data-password-target]").forEach(button => {
+        const input = document.getElementById(button.dataset.passwordTarget);
+        if (input) input.type = "password";
+        updateResetPasswordToggle(button);
+    });
+    openModal("#resetPasswordModal");
+});
+
+document.getElementById("resetPasswordForm")?.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    const currentPassword = document.getElementById("resetCurrentPassword")?.value || "";
+    const newPassword = document.getElementById("resetNewPassword")?.value || "";
+    const confirmPassword = document.getElementById("resetConfirmPassword")?.value || "";
+    const button = document.getElementById("resetPasswordButton");
+    const message = document.getElementById("resetPasswordMessage");
+    const token = getAuthToken();
+
+    if (!token) {
+        showLoginScreen();
+        return;
+    }
+
+    if (newPassword.length < 6) {
+        if (message) message.textContent = "New password must be at least 6 characters.";
+        return;
+    }
+    if (newPassword !== confirmPassword) {
+        if (message) message.textContent = "New passwords do not match.";
+        return;
+    }
+    if (currentPassword === newPassword) {
+        if (message) message.textContent = "Choose a different new password.";
+        return;
+    }
+
+    if (button) {
+        button.disabled = true;
+        button.textContent = "Resetting...";
+    }
+    if (message) {
+        message.textContent = "";
+        message.classList.remove("success");
+    }
+
+    try {
+        const response = await fetch("/api/auth/password", {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({ currentPassword, newPassword })
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                clearAuthData();
+                showLoginScreen();
+                return;
+            }
+            throw new Error(result.error || "Could not reset your password.");
+        }
+
+        event.target.reset();
+        document.querySelectorAll("#resetPasswordModal [data-password-target]").forEach(toggle => {
+            const input = document.getElementById(toggle.dataset.passwordTarget);
+            if (input) input.type = "password";
+            updateResetPasswordToggle(toggle);
+        });
+
+        if (message) {
+            message.textContent = "Password reset successfully.";
+            message.classList.add("success");
+        }
+
+        showToast("Password reset successfully.", "success");
+        window.setTimeout(() => closeModal("#resetPasswordModal"), 900);
+    } catch (error) {
+        console.error("Password reset failed:", error);
+        if (message) message.textContent = error.message || "Could not reset your password.";
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.textContent = "Reset Password";
+        }
+    }
+});
 
 
 /* =========================================================
@@ -5957,12 +4989,9 @@ function updateNotifications() {
 
 
 function toggleNotifications() {
-
-    notificationPanel
-        ?.classList.toggle(
-            "show"
-        );
-
+    if (!notificationPanel) return;
+    const isOpen = notificationPanel.classList.toggle("show");
+    notificationPanel.setAttribute("aria-hidden", String(!isOpen));
 }
 
 
@@ -5974,6 +5003,24 @@ document
         "click",
         toggleNotifications
     );
+
+document
+    .querySelector("#closeNotifications")
+    ?.addEventListener("click", () => {
+        notificationPanel?.classList.remove("show");
+        notificationPanel?.setAttribute("aria-hidden", "true");
+    });
+
+document.addEventListener("click", event => {
+    if (!notificationPanel?.classList.contains("show")) return;
+
+    const clickedInsidePanel = notificationPanel.contains(event.target);
+    const clickedTrigger = event.target.closest("#notificationButton, #mobileNotificationButton");
+    if (!clickedInsidePanel && !clickedTrigger) {
+        notificationPanel.classList.remove("show");
+        notificationPanel.setAttribute("aria-hidden", "true");
+    }
+});
 
 
 document
@@ -5999,6 +5046,8 @@ document
             saveData();
 
             updateNotifications();
+            notificationPanel?.classList.remove("show");
+            notificationPanel?.setAttribute("aria-hidden", "true");
 
             showToast(
                 "Notifications cleared.",
@@ -6010,155 +5059,11 @@ document
 
 
 /* =========================================================
-   SMART DEADLINE / SCHEDULE NOTIFICATIONS
+   NOTIFICATIONS
+   Deadline/schedule reminders are intentionally disabled. Render may sleep,
+   so browser-opened reminders are not reliable enough to present as alerts.
+   The in-app Updates panel remains available for future app-level notices.
 ========================================================= */
-
-function getReminderTimeParts() {
-    const value = /^([01]\d|2[0-3]):([0-5]\d)$/.test(settings.deadlineReminderTime || "")
-        ? settings.deadlineReminderTime
-        : "18:00";
-    const [hours, minutes] = value.split(":").map(Number);
-    return { hours, minutes };
-}
-
-function dateDaysBetween(start, end) {
-    const a = getDateFromString(start);
-    const b = getDateFromString(end);
-    return Math.round((b - a) / 86400000);
-}
-
-function subtractDays(dateString, amount) {
-    const date = getDateFromString(dateString);
-    date.setDate(date.getDate() - amount);
-    return dateToString(date);
-}
-
-async function requestDesktopNotificationPermission() {
-    if (!("Notification" in window)) return false;
-    if (Notification.permission === "granted") return true;
-    if (Notification.permission === "denied") return false;
-    try {
-        return (await Notification.requestPermission()) === "granted";
-    } catch (error) {
-        console.warn("Desktop notification permission request failed:", error);
-        return false;
-    }
-}
-
-function sendDesktopReminder(title, message) {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
-    try {
-        new Notification(title, {
-            body: message,
-            silent: false
-        });
-    } catch (error) {
-        console.warn("Desktop reminder could not be shown:", error);
-    }
-}
-
-function addReminderNotification(key, title, message) {
-    if (notifications.some(notification => notification.key === key)) return false;
-
-    notifications.push({
-        id: createId(),
-        key,
-        title,
-        message,
-        createdAt: new Date().toISOString(),
-        read: false
-    });
-
-    sendDesktopReminder(title, message);
-    saveData();
-    updateNotifications();
-    return true;
-}
-
-function getReminderStartDate(eventDate, createdAt) {
-    const reminderDays = Math.max(1, Number(settings.deadlineReminderDays) || 3);
-    const plannedStart = subtractDays(eventDate, reminderDays);
-    const createdDate = createdAt ? String(createdAt).slice(0, 10) : plannedStart;
-    return createdDate > plannedStart ? createdDate : plannedStart;
-}
-
-function shouldRemindToday(eventDate, createdAt, itemId) {
-    if (!eventDate || eventDate < todayString()) return false;
-
-    const today = todayString();
-    const startDate = getReminderStartDate(eventDate, createdAt);
-    if (today < startDate || today > eventDate) return false;
-
-    const { hours, minutes } = getReminderTimeParts();
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const reminderMinutes = hours * 60 + minutes;
-    if (currentMinutes < reminderMinutes) return false;
-
-    if (settings.dailyDeadlineReminders) {
-        const dailyDays = Math.max(1, Number(settings.dailyDeadlineReminderDays) || 3);
-        const dailyEnd = getDateFromString(startDate);
-        dailyEnd.setDate(dailyEnd.getDate() + dailyDays - 1);
-        if (today > dateToString(dailyEnd)) return false;
-    } else if (today !== startDate) {
-        return false;
-    }
-
-    return `${itemId}_${today}`;
-}
-
-
-function checkScheduledReminders() {
-    if (!getAuthToken() || !getAuthUser()?.id || settings.deadlineNotifications === false) return;
-
-    let changed = false;
-
-    // Tasks: reminders are based on the task deadline.
-    tasks.forEach(task => {
-        if (task.completed || !task.deadline) return;
-
-        const keyDate = shouldRemindToday(task.deadline, task.createdAt, task.id);
-        if (!keyDate) return;
-
-        const title = task.deadline === todayString()
-            ? "Task due today"
-            : `Task reminder: ${task.title}`;
-        const message = `${task.title} is due ${formatDate(task.deadline)}${task.subject ? ` · ${task.subject}` : ""}.`;
-
-        if (addReminderNotification(`task-reminder-${task.id}-${keyDate}`, title, message)) {
-            changed = true;
-        }
-    });
-
-    // Subject schedules use the exact same reminder rules as tasks.
-    subjects.forEach(subject => {
-        (Array.isArray(subject.schedule) ? subject.schedule : []).forEach(schedule => {
-            if (!schedule?.date) return;
-
-            const keyDate = shouldRemindToday(schedule.date, schedule.createdAt, schedule.id);
-            if (!keyDate) return;
-
-            const when = schedule.time ? ` at ${schedule.time}` : "";
-            const title = schedule.date === todayString()
-                ? `${subject.name}: schedule today`
-                : `${subject.name}: upcoming schedule`;
-            const message = `${schedule.title} is scheduled for ${formatDate(schedule.date)}${when}.`;
-
-            if (addReminderNotification(`schedule-reminder-${subject.id}-${schedule.id}-${keyDate}`, title, message)) {
-                changed = true;
-            }
-        });
-    });
-
-    if (changed) {
-        renderAll();
-    }
-}
-
-// Keep the old function name available for compatibility with any existing code.
-function checkDeadlineNotifications() {
-    checkScheduledReminders();
-}
 
 /* =========================================================
    SYSTEM THEME CHANGE
@@ -6254,7 +5159,6 @@ async function initializeAceArch() {
         renderFocusPage();
     }
 
-    checkScheduledReminders();
 
     setMinimumDates();
 
@@ -6271,7 +5175,6 @@ async function initializeAceArch() {
 
             setMinimumDates();
 
-            checkScheduledReminders();
 
         },
         30000
@@ -6313,7 +5216,7 @@ function updateInstallAppButton() {
     }
 
     card.hidden = false;
-    button.textContent = acearchInstallPrompt ? "Install AceArch" : "Add to Home Screen";
+    button.textContent = "Install AceArch";
 }
 
 async function installAceArch() {

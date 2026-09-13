@@ -83,6 +83,7 @@ function deleteUserRows(tx, userId, includeUser = false) {
     tx.run("DELETE FROM notifications WHERE user_id = ?", [userId]);
     tx.run("DELETE FROM calendar_items WHERE user_id = ?", [userId]);
     tx.run("DELETE FROM focus_sessions WHERE user_id = ?", [userId]);
+    tx.run("DELETE FROM pdfs WHERE user_id = ?", [userId]);
     if (includeUser) {
         tx.run("DELETE FROM users WHERE id = ?", [userId]);
     }
@@ -101,6 +102,7 @@ async function deleteUserRowsAsync(tx, userId, includeUser = false) {
     await tx.run("DELETE FROM notifications WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM calendar_items WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM focus_sessions WHERE user_id = ?", [userId]);
+    await tx.run("DELETE FROM pdfs WHERE user_id = ?", [userId]);
     if (includeUser) {
         await tx.run("DELETE FROM users WHERE id = ?", [userId]);
     }
@@ -216,6 +218,59 @@ app.post("/api/auth/login", async (req, res) => {
     } catch (error) {
         console.error("Login error:", error);
         res.status(500).json({ error: "Could not log in." });
+    }
+});
+
+/* =========================================================
+   CHANGE PASSWORD
+========================================================= */
+
+app.put("/api/auth/password", authenticateToken, async (req, res) => {
+    try {
+        const currentPassword = String(req.body?.currentPassword || "");
+        const newPassword = String(req.body?.newPassword || "");
+
+        if (currentPassword.length < 6 || newPassword.length < 6) {
+            return res.status(400).json({
+                error: "Passwords must be at least 6 characters."
+            });
+        }
+
+        if (currentPassword === newPassword) {
+            return res.status(400).json({
+                error: "Choose a different new password."
+            });
+        }
+
+        const user = await db.get(`
+            SELECT id, password_hash AS "passwordHash"
+            FROM users
+            WHERE id = ?
+        `, [req.user.id]);
+
+        if (!user) {
+            return res.status(401).json({ error: "Account no longer exists." });
+        }
+
+        const matches = await bcrypt.compare(currentPassword, user.passwordHash);
+        if (!matches) {
+            return res.status(400).json({ error: "Current password is incorrect." });
+        }
+
+        const passwordHash = await bcrypt.hash(newPassword, 12);
+        await db.run(`
+            UPDATE users
+            SET password_hash = ?
+            WHERE id = ?
+        `, [passwordHash, req.user.id]);
+
+        res.json({
+            success: true,
+            message: "Password changed successfully."
+        });
+    } catch (error) {
+        console.error("Password change error:", error);
+        res.status(500).json({ error: "Could not change your password." });
     }
 });
 
@@ -362,17 +417,134 @@ app.get("/api/data", authenticateToken, async (req, res) => {
             ORDER BY completed_at ASC
         `, [userId]);
 
+        const pdfs = await db.all(`
+            SELECT id, subject_id AS subjectId, filename AS name,
+                   mime_type AS type, size, created_at AS createdAt
+            FROM pdfs
+            WHERE user_id = ?
+            ORDER BY created_at ASC
+        `, [userId]);
+
         res.json({
             tasks,
             subjects,
             settings,
             notifications,
             calendarItems,
-            focusSessions
+            focusSessions,
+            pdfs
         });
     } catch (error) {
         console.error("Database read error:", error);
         res.status(500).json({ error: "Could not load AceArch data." });
+    }
+});
+
+/* =========================================================
+   PDF STORAGE
+   Binary files live in PostgreSQL so they are available on every device.
+========================================================= */
+
+app.post(
+    "/api/pdfs/:id",
+    authenticateToken,
+    express.raw({ type: "application/pdf", limit: "25mb" }),
+    async (req, res) => {
+        try {
+            const id = String(req.params.id || "").trim();
+            const subjectId = String(req.query.subjectId || "").trim();
+            const filename = String(req.query.name || "AceArch document.pdf").trim();
+
+            if (!id || !subjectId || !Buffer.isBuffer(req.body) || !req.body.length) {
+                return res.status(400).json({ error: "A PDF file and subject are required." });
+            }
+
+            if (req.body.length > 25 * 1024 * 1024) {
+                return res.status(413).json({ error: "PDF must be smaller than 25 MB." });
+            }
+
+            const subject = await db.get(`
+                SELECT id FROM subjects
+                WHERE id = ? AND user_id = ?
+            `, [subjectId, req.user.id]);
+
+            if (!subject) {
+                return res.status(404).json({ error: "Subject not found." });
+            }
+
+            await db.run(`
+                INSERT INTO pdfs (
+                    id, user_id, subject_id, filename, mime_type,
+                    size, data, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (id) DO UPDATE SET
+                    subject_id = EXCLUDED.subject_id,
+                    filename = EXCLUDED.filename,
+                    mime_type = EXCLUDED.mime_type,
+                    size = EXCLUDED.size,
+                    data = EXCLUDED.data,
+                    updated_at = EXCLUDED.updated_at
+                WHERE pdfs.user_id = EXCLUDED.user_id
+            `, [
+                id,
+                req.user.id,
+                subjectId,
+                filename || "AceArch document.pdf",
+                "application/pdf",
+                req.body.length,
+                req.body,
+                new Date().toISOString(),
+                new Date().toISOString()
+            ]);
+
+            res.json({
+                success: true,
+                id,
+                size: req.body.length
+            });
+        } catch (error) {
+            console.error("PDF upload error:", error);
+            res.status(500).json({ error: "Could not store the PDF." });
+        }
+    }
+);
+
+app.get("/api/pdfs/:id", authenticateToken, async (req, res) => {
+    try {
+        const pdf = await db.get(`
+            SELECT filename, mime_type, size, data
+            FROM pdfs
+            WHERE id = ? AND user_id = ?
+        `, [String(req.params.id || ""), req.user.id]);
+
+        if (!pdf) {
+            return res.status(404).json({ error: "PDF not found." });
+        }
+
+        res.setHeader("Content-Type", pdf.mime_type || "application/pdf");
+        res.setHeader("Content-Length", String(pdf.size || pdf.data?.length || 0));
+        res.setHeader(
+            "Content-Disposition",
+            `inline; filename="${String(pdf.filename || "AceArch document.pdf").replace(/["\r\n]/g, "")}"`
+        );
+        res.send(pdf.data);
+    } catch (error) {
+        console.error("PDF read error:", error);
+        res.status(500).json({ error: "Could not load the PDF." });
+    }
+});
+
+app.delete("/api/pdfs/:id", authenticateToken, async (req, res) => {
+    try {
+        await db.run(`
+            DELETE FROM pdfs
+            WHERE id = ? AND user_id = ?
+        `, [String(req.params.id || ""), req.user.id]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error("PDF delete error:", error);
+        res.status(500).json({ error: "Could not delete the PDF." });
     }
 });
 
@@ -497,12 +669,47 @@ app.get("/api/test-database", async (req, res) => {
 });
 
 /* =========================================================
-   SERVER
+   DATABASE EXTENSIONS / STARTUP
 ========================================================= */
 
-const server = app.listen(PORT, () => {
-    console.log(`AceArch is running at http://localhost:${PORT}`);
-});
+async function ensurePdfTable() {
+    await db.run(`
+        CREATE TABLE IF NOT EXISTS pdfs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            mime_type TEXT NOT NULL DEFAULT 'application/pdf',
+            size INTEGER NOT NULL DEFAULT 0,
+            data BYTEA NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    `);
+    await db.run(`
+        CREATE INDEX IF NOT EXISTS pdfs_user_id_idx
+        ON pdfs (user_id)
+    `);
+    await db.run(`
+        CREATE INDEX IF NOT EXISTS pdfs_subject_id_idx
+        ON pdfs (subject_id)
+    `);
+}
+
+async function startServer() {
+    try {
+        await ensurePdfTable();
+        const server = app.listen(PORT, () => {
+            console.log(`AceArch is running at http://localhost:${PORT}`);
+        });
+        return server;
+    } catch (error) {
+        console.error("Database startup error:", error);
+        process.exit(1);
+    }
+}
+
+startServer();
 
 function parseJSON(value, fallback) {
     if (value === null || value === undefined || value === "") {
