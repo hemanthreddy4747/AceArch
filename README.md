@@ -7,41 +7,34 @@
 
 ## ✨ Features
 
-* 📊 **Dashboard** — Overview of tasks and productivity
-* ✅ **Task Management** — Create, manage, and track tasks
-* 📚 **Subjects** — Organize academic subjects
-* 📅 **Planner & Calendar** — Plan schedules and activities
-* 📝 **Notes** — Create and manage study notes
-* ⏱️ **Focus Timer** — Dedicated study sessions
-* 📈 **Analytics** — Track productivity
-* 🔔 **Notifications** — Stay updated with tasks
-* 🔐 **Authentication** — JWT + bcrypt secure login
-* 💾 **PostgreSQL** — Persistent data storage with Supabase
-* 📱 **PWA** — Install AceArch as an app using **Add to Home Screen**
+- 📊 **Dashboard** — Overview of tasks and productivity
+- ✅ **Task Management** — Create, manage, and track tasks
+- 📚 **Subjects** — Organize academic subjects
+- 📅 **Planner & Calendar** — Plan schedules and activities
+- 📝 **Notes** — Create and manage study notes
+- ⏱️ **Focus Timer** — Dedicated study sessions
+- 📈 **Analytics** — Track productivity
+- 🔐 **Authentication** — JWT + bcrypt secure login
+- 💾 **PostgreSQL** — Persistent data storage with Supabase
+- 📱 **PWA** — Install AceArch as an app using **Add to Home Screen**
 
 ## 🛠️ Tech Stack
 
-**Frontend:** HTML, CSS, JavaScript, Chart.js
-**Backend:** Node.js, Express.js, JWT, bcrypt
-**Database:** PostgreSQL, Supabase
-**Deployment:** GitHub + Render
+**Frontend:** HTML, CSS, JavaScript, Chart.js  
+**Backend:** Node.js, Express.js, JWT, bcrypt  
+**Database:** PostgreSQL, Supabase  
+**Deployment:** GitHub + Render  
 **App:** Progressive Web App (PWA)
 
 ## 🏗️ Architecture
 
-```text
-User → AceArch PWA → Express REST API → PostgreSQL → Supabase
+**User → AceArch PWA → Express REST API → PostgreSQL → Supabase
                          ↓
-                       Render
-```
+                       Render**
 
 ## 📱 Install as an App
 
 Open the **Live Project** → **Settings → Account → Add to Home Screen**, or use your browser's **Install** option.
-
-## 📸 Screenshots
-
-*Add screenshots of the dashboard, task manager, planner, and other major features here.*
 
 ## 🎯 Project Goal
 
@@ -49,7 +42,7 @@ AceArch brings **tasks, subjects, planning, notes, focus sessions, analytics, an
 
 ## 📌 License
 
-*AceArch is available for personal use. The source code is publicly available for viewing, but may not be modified, redistributed, or reused without permission.*
+*AceArch is licenseed under the **MIT LICENSE**, you may freely copy it, modify it, and redistribute it, but keep my copyright notice and license, and I’m not responsible if something goes wrong.” .*
 
 ## 👩‍💻 Author
 
