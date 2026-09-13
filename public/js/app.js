@@ -726,27 +726,6 @@ function formatFullDate(dateString) {
 }
 
 
-function formatBytes(bytes) {
-
-    const value = Number(bytes) || 0;
-
-    if (value < 1024) {
-        return `${value} B`;
-    }
-
-    if (value < 1024 * 1024) {
-        return `${(value / 1024).toFixed(1)} KB`;
-    }
-
-    if (value < 1024 * 1024 * 1024) {
-        return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-    }
-
-    return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-
-}
-
-
 function formatMinutes(minutes) {
 
     minutes =
@@ -946,6 +925,8 @@ const pageTitles = {
 };
 
 
+let navigationRenderToken = 0;
+
 function navigate(section) {
 
     if (!sections[section]) {
@@ -994,9 +975,11 @@ function navigate(section) {
     closeSidebar();
 
 
+    const renderToken = ++navigationRenderToken;
+
     window.scrollTo({
         top: 0,
-        behavior: "smooth"
+        behavior: "auto"
     });
 
 
@@ -1023,7 +1006,13 @@ function navigate(section) {
             break;
 
         case "analytics":
-            renderAnalytics();
+            // Wait until the section is visible and laid out before starting the
+            // SVG animation. Ignore stale callbacks when the user clicks rapidly.
+            requestAnimationFrame(() => {
+                if (renderToken !== navigationRenderToken) return;
+                if (!sections.analytics?.classList.contains("active-section")) return;
+                renderAnalytics();
+            });
             break;
 
         case "settings":
@@ -3597,6 +3586,14 @@ document.addEventListener("click", async event => {
     renderSubjectWorkspace();
 });
 
+function formatBytes(bytes) {
+    const value = Number(bytes) || 0;
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 function noteHTML(note) {
     return `
         <div class="schedule-item pdf-resource-item">
@@ -3821,12 +3818,17 @@ async function handlePdfUpload(subjectId, event) {
             console.warn("Cloud PDF upload failed; keeping local copy:", serverError);
         }
 
-        subject.notes.push({ id, name: file.name, size: file.size, createdAt });
+        subject.notes.push({
+            id,
+            name: file.name,
+            size: file.size,
+            createdAt
+        });
+
         saveData();
+
         if (activeSubjectWorkspaceId === subjectId) {
             renderSubjectWorkspace();
-        } else {
-            renderSubjects();
         }
 
         showToast(
@@ -3979,6 +3981,8 @@ function renderSubjects() {
 document.addEventListener("click", event => {
     const open = event.target.closest("[data-subject-open]");
     if (open) {
+        event.preventDefault();
+        event.stopPropagation();
         openSubjectWorkspace(open.dataset.subjectOpen);
         return;
     }
@@ -4269,15 +4273,16 @@ function niceChartMax(value) {
 function getTaskAnalyticsDate(task) {
     if (!task?.completed) return null;
 
-    // Completion timestamps are stored as ISO/UTC timestamps. Analytics is
-    // grouped by the user's local calendar day, so compare local YYYY-MM-DD
-    // values instead of slicing the raw UTC date portion.
-    const value = task.completedAt || task.updatedAt;
+    const value = task.completedAt || task.updatedAt || task.createdAt;
     if (!value) return null;
+
+    // Preserve date-only values exactly. JavaScript treats YYYY-MM-DD as UTC,
+    // which can shift the date backwards in local time zones such as IST.
+    const raw = String(value);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
 
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return null;
-
     return dateToString(date);
 }
 
@@ -4318,13 +4323,13 @@ function renderAnalytics() {
     const grid = taskTicks.map(tick => {
         const yy = y(tick, taskMax);
         const label = Number.isInteger(tick) ? tick : tick.toFixed(1);
-        return `<line class="analytics-grid-line" x1="${left}" y1="${yy}" x2="${W-right}" y2="${yy}"/><text class="analytics-axis-label" x="${left-12}" y="${yy+4}" text-anchor="end">${label}</text>`;
+        return `<line class="analytics-grid-line" x1="${left}" y1="${yy}" x2="${W - right}" y2="${yy}"/><text class="analytics-axis-label" x="${left - 12}" y="${yy + 4}" text-anchor="end">${label}</text>`;
     }).join("");
 
     const rightLabels = focusTicks.map(tick => {
         const yy = y(tick, focusMax);
         const label = Number.isInteger(tick) ? tick : tick.toFixed(1);
-        return `<text class="analytics-axis-label" x="${W-right+12}" y="${yy+4}" text-anchor="start">${label}m</text>`;
+        return `<text class="analytics-axis-label" x="${W - right + 12}" y="${yy + 4}" text-anchor="start">${label}m</text>`;
     }).join("");
 
     const bars = taskValues.map((value, index) => {
@@ -4336,7 +4341,7 @@ function renderAnalytics() {
 
     const labels = days.map((day, index) => {
         const x = left + groupW * index + groupW / 2;
-        return `<text class="analytics-day-label" x="${x.toFixed(1)}" y="${H-22}" text-anchor="middle">${escapeHTML(day.label)}</text>`;
+        return `<text class="analytics-day-label" x="${x.toFixed(1)}" y="${H - 22}" text-anchor="middle">${escapeHTML(day.label)}</text>`;
     }).join("");
 
     const points = focusValues.map((value, index) => {
@@ -4349,8 +4354,8 @@ function renderAnalytics() {
         <svg class="analytics-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Last 7 days tasks and focus activity">
             <g class="analytics-grid">${grid}</g>
             <line class="analytics-axis" x1="${left}" y1="${top}" x2="${left}" y2="${baseY}"/>
-            <line class="analytics-axis" x1="${W-right}" y1="${top}" x2="${W-right}" y2="${baseY}"/>
-            <line class="analytics-axis" x1="${left}" y1="${baseY}" x2="${W-right}" y2="${baseY}"/>
+            <line class="analytics-axis" x1="${W - right}" y1="${top}" x2="${W - right}" y2="${baseY}"/>
+            <line class="analytics-axis" x1="${left}" y1="${baseY}" x2="${W - right}" y2="${baseY}"/>
             <g class="analytics-right-labels">${rightLabels}</g>
             <g class="analytics-bars-layer">${bars}</g>
             <polyline class="analytics-focus-line" points="${linePoints}" fill="none"/>
@@ -4657,8 +4662,8 @@ function updateResetPasswordToggle(button) {
     button.setAttribute("aria-pressed", String(visible));
     button.setAttribute("aria-label", visible ? "Hide password" : "Show password");
     button.innerHTML = visible
-        ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.2A10.8 10.8 0 0 1 12 5c5.1 0 8.8 4.2 10 7a12 12 0 0 1-3.2 4.6M6.2 6.3C4.3 7.9 2.9 9.9 2 12c1.2 2.8 5 7 10 7 1.2 0 2.4-.2 3.4-.6"/></svg>`
-        : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+        ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.2A10.8 10.8 0 0 1 12 5c5.1 0 8.8 4.2 10 7a12 12 0 0 1-3.2 4.6M6.2 6.3C4.3 7.9 2.9 9.9 2 12c1.2 2.8 5 7 10 7 1.2 0 2.4-.2 3.4-.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+        : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>`;
 }
 
 document.querySelectorAll("[data-password-target]").forEach(button => {
@@ -5127,7 +5132,11 @@ function renderAll() {
 
     updateFocusStats();
 
-    renderAnalytics();
+    // Analytics is rendered when its section is visible. This prevents the chart
+    // animation from being consumed while the section is hidden during reload.
+    if (sections.analytics?.classList.contains("active-section")) {
+        renderAnalytics();
+    }
 
     updateNotifications();
 
@@ -5178,7 +5187,7 @@ async function initializeAceArch() {
 
             setMinimumDates();
 
-        
+
         },
         30000
     );
