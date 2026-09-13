@@ -11,8 +11,8 @@
     "minimal-ui"
   ],
   "orientation": "any",
+  "theme_color": "#0b0b10",
   "background_color": "#0b0b10",
-  "theme_color": "#f97316",
   "prefer_related_applications": false,
   "icons": [
     {
