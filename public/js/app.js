@@ -97,7 +97,6 @@ function resetUserDataInMemory() {
     calendarItems = [];
     subjects = [];
     focusSessions = [];
-    notifications = [];
     settings = { ...defaultSettings };
     databaseReady = false;
     databaseUserId = null;
@@ -338,7 +337,6 @@ const STORAGE_KEYS = {
     calendar: "acearch_calendar",
     subjects: "acearch_subjects",
     focus: "acearch_focus",
-    notifications: "acearch_notifications",
     settings: "acearch_settings"
 };
 
@@ -381,7 +379,6 @@ let tasks = [];
 let calendarItems = [];
 let subjects = [];
 let focusSessions = [];
-let notifications = [];
 let settings = { ...defaultSettings };
 
 
@@ -408,7 +405,6 @@ function getDatabasePayload() {
         tasks,
         subjects,
         settings,
-        notifications,
         calendarItems,
         focusSessions
     };
@@ -431,7 +427,6 @@ function saveLocalBackup() {
     write(STORAGE_KEYS.calendar, calendarItems);
     write(STORAGE_KEYS.subjects, subjects);
     write(STORAGE_KEYS.focus, focusSessions);
-    write(STORAGE_KEYS.notifications, notifications);
     write(STORAGE_KEYS.settings, settings);
 }
 
@@ -447,7 +442,6 @@ function loadUserLocalBackup(userId) {
     calendarItems = read(STORAGE_KEYS.calendar, []);
     subjects = read(STORAGE_KEYS.subjects, []);
     focusSessions = read(STORAGE_KEYS.focus, []);
-    notifications = read(STORAGE_KEYS.notifications, []);
     settings = { ...defaultSettings, ...read(STORAGE_KEYS.settings, {}) };
     if (settings.font === "Cinzel") settings.font = defaultSettings.font;
     databaseUserId = userId;
@@ -567,7 +561,6 @@ async function loadDatabaseData() {
             cloudNotes.forEach(note => byId.set(note.id, { ...byId.get(note.id), ...note }));
             subject.notes = Array.from(byId.values());
         });
-        notifications = Array.isArray(data.notifications) ? data.notifications : [];
         calendarItems = Array.isArray(data.calendarItems) ? data.calendarItems : [];
         focusSessions = Array.isArray(data.focusSessions) ? data.focusSessions : [];
         settings = { ...defaultSettings, ...(data.settings || {}) };
@@ -935,11 +928,22 @@ const pageTitles = {
 };
 
 
+let navigationGeneration = 0;
+let activeSection = null;
+
 function navigate(section) {
 
     if (!sections[section]) {
         return;
     }
+
+    const generation = ++navigationGeneration;
+    if (activeSection === section) {
+        closeSidebar();
+        window.scrollTo({ top: 0, behavior: "auto" });
+        return;
+    }
+    activeSection = section;
 
     Object.values(sections)
         .forEach(element => {
@@ -985,7 +989,7 @@ function navigate(section) {
 
     window.scrollTo({
         top: 0,
-        behavior: "smooth"
+        behavior: "auto"
     });
 
 
@@ -1012,9 +1016,12 @@ function navigate(section) {
             break;
 
         case "analytics":
-            // Render after the section has been made visible so the SVG animation
-            // starts from a laid-out element. Render only once per navigation.
-            requestAnimationFrame(() => renderAnalytics());
+            // Render only for the latest navigation request. Rapid sidebar clicks
+            // must not leave stale animation callbacks updating an old section.
+            requestAnimationFrame(() => {
+                if (generation !== navigationGeneration || activeSection !== "analytics") return;
+                renderAnalytics();
+            });
             break;
 
         case "settings":
@@ -4130,7 +4137,6 @@ function finishFocus() {
 
     renderTimer();
     updateFocusStats();
-    updateNotifications();
     updateStats();
     renderAnalytics();
 
@@ -4783,7 +4789,7 @@ async function deleteCurrentUserData() {
     }
 
     const confirmed = await confirmAction(
-        "This permanently deletes this account's AceArch tasks, subjects, settings, notifications, calendar items and focus sessions. Your account will remain active.",
+        "This permanently deletes this account's AceArch tasks, subjects, settings, calendar items and focus sessions. Your account will remain active.",
         { force: true, title: "Delete My Data?", confirmText: "Delete My Data" }
     );
     if (!confirmed) return;
@@ -4813,8 +4819,7 @@ async function deleteCurrentUserData() {
         subjects = [];
         calendarItems = [];
         focusSessions = [];
-        notifications = [];
-        settings = { ...defaultSettings };
+            settings = { ...defaultSettings };
         databaseReady = true;
         databaseUserId = user.id;
         clearUserLocalBackup(user.id);
@@ -4898,174 +4903,6 @@ document.querySelector("#clearLocalData")?.addEventListener("click", async () =>
 });
 
 /* =========================================================
-   NOTIFICATIONS
-========================================================= */
-
-const notificationPanel =
-    document.querySelector(
-        "#notificationPanel"
-    );
-
-
-function updateNotifications() {
-
-    const list =
-        document.querySelector(
-            "#notificationList"
-        );
-
-
-    const dot =
-        document.querySelector(
-            "#notificationDot"
-        );
-
-
-    if (!list) {
-        return;
-    }
-
-
-    list.innerHTML =
-        notifications.length
-
-            ? notifications
-                .slice()
-                .reverse()
-                .map(
-                    notification => `
-
-                    <div class="notification">
-
-                        <strong>
-                            ${escapeHTML(
-                        notification.title
-                    )}
-                        </strong>
-
-                        <small>
-                            ${escapeHTML(
-                        notification.message
-                    )}
-                        </small>
-
-                    </div>
-
-                `
-                )
-                .join("")
-
-            : `
-
-                <div class="empty-state">
-
-                    <div class="empty-icon">
-                        ♢
-                    </div>
-
-                    <h3>
-                        No notifications
-                    </h3>
-
-                    <p>
-                        You're all caught up.
-                    </p>
-
-                </div>
-
-            `;
-
-
-    if (dot) {
-
-        dot.classList.toggle(
-            "show",
-            notifications.length > 0
-        );
-
-    }
-
-}
-
-
-function toggleNotifications() {
-    if (!notificationPanel) return;
-    const isOpen = notificationPanel.classList.toggle("show");
-    notificationPanel.setAttribute("aria-hidden", String(!isOpen));
-}
-
-
-document
-    .querySelector(
-        "#notificationButton"
-    )
-    ?.addEventListener(
-        "click",
-        toggleNotifications
-    );
-
-document
-    .querySelector("#closeNotifications")
-    ?.addEventListener("click", () => {
-        notificationPanel?.classList.remove("show");
-        notificationPanel?.setAttribute("aria-hidden", "true");
-    });
-
-document.addEventListener("click", event => {
-    if (!notificationPanel?.classList.contains("show")) return;
-
-    const clickedInsidePanel = notificationPanel.contains(event.target);
-    const clickedTrigger = event.target.closest("#notificationButton, #mobileNotificationButton");
-    if (!clickedInsidePanel && !clickedTrigger) {
-        notificationPanel.classList.remove("show");
-        notificationPanel.setAttribute("aria-hidden", "true");
-    }
-});
-
-
-document
-    .querySelector(
-        "#mobileNotificationButton"
-    )
-    ?.addEventListener(
-        "click",
-        toggleNotifications
-    );
-
-
-document
-    .querySelector(
-        "#clearNotifications"
-    )
-    ?.addEventListener(
-        "click",
-        () => {
-
-            notifications = [];
-
-            saveData();
-
-            updateNotifications();
-            notificationPanel?.classList.remove("show");
-            notificationPanel?.setAttribute("aria-hidden", "true");
-
-            showToast(
-                "Notifications cleared.",
-                "success"
-            );
-
-        }
-    );
-
-
-/* =========================================================
-   NOTIFICATIONS
-   Deadline/schedule reminders are intentionally disabled. Render may sleep,
-   so browser-opened reminders are not reliable enough to present as alerts.
-   The in-app Updates panel remains available for future app-level notices.
-========================================================= */
-
-/* =========================================================
    SYSTEM THEME CHANGE
 ========================================================= */
 
@@ -5126,7 +4963,6 @@ function renderAll() {
 
     renderAnalytics();
 
-    updateNotifications();
 
     loadSettingsUI();
 

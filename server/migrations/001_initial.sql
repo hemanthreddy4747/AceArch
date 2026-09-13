@@ -50,15 +50,6 @@ CREATE TABLE IF NOT EXISTS settings (
     PRIMARY KEY (key, user_id)
 );
 
-CREATE TABLE IF NOT EXISTS notifications (
-    id TEXT PRIMARY KEY,
-    title TEXT,
-    message TEXT,
-    created_at TEXT,
-    read BOOLEAN NOT NULL DEFAULT FALSE,
-    notification_key TEXT,
-    user_id TEXT
-);
 
 CREATE TABLE IF NOT EXISTS calendar_items (
     id TEXT PRIMARY KEY,
@@ -80,7 +71,6 @@ CREATE TABLE IF NOT EXISTS focus_sessions (
 CREATE INDEX IF NOT EXISTS tasks_user_id_idx ON tasks (user_id);
 CREATE INDEX IF NOT EXISTS subjects_user_id_idx ON subjects (user_id);
 CREATE INDEX IF NOT EXISTS settings_user_id_idx ON settings (user_id);
-CREATE INDEX IF NOT EXISTS notifications_user_id_idx ON notifications (user_id);
 CREATE INDEX IF NOT EXISTS calendar_items_user_id_idx ON calendar_items (user_id);
 CREATE INDEX IF NOT EXISTS focus_sessions_user_id_idx ON focus_sessions (user_id);
 

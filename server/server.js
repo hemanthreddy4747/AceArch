@@ -80,7 +80,6 @@ function deleteUserRows(tx, userId, includeUser = false) {
     tx.run("DELETE FROM tasks WHERE user_id = ?", [userId]);
     tx.run("DELETE FROM subjects WHERE user_id = ?", [userId]);
     tx.run("DELETE FROM settings WHERE user_id = ?", [userId]);
-    tx.run("DELETE FROM notifications WHERE user_id = ?", [userId]);
     tx.run("DELETE FROM calendar_items WHERE user_id = ?", [userId]);
     tx.run("DELETE FROM focus_sessions WHERE user_id = ?", [userId]);
     tx.run("DELETE FROM pdfs WHERE user_id = ?", [userId]);
@@ -99,7 +98,6 @@ async function deleteUserRowsAsync(tx, userId, includeUser = false) {
     await tx.run("DELETE FROM tasks WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM subjects WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM settings WHERE user_id = ?", [userId]);
-    await tx.run("DELETE FROM notifications WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM calendar_items WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM focus_sessions WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM pdfs WHERE user_id = ?", [userId]);
@@ -388,21 +386,6 @@ app.get("/api/data", authenticateToken, async (req, res) => {
             settings[key] = parseJSON(row.value, row.value);
         }
 
-        const notifications = (await db.all(`
-            SELECT id, notification_key AS key, title, message,
-                   created_at AS createdAt, read
-            FROM notifications
-            WHERE user_id = ?
-            ORDER BY created_at ASC
-        `, [userId])).map(notification => ({
-            id: notification.id,
-            ...(notification.key ? { key: notification.key } : {}),
-            title: notification.title,
-            message: notification.message,
-            createdAt: notification.createdAt,
-            read: Boolean(notification.read)
-        }));
-
         const calendarItems = await db.all(`
             SELECT id, title, date, type, task_id AS taskId
             FROM calendar_items
@@ -429,7 +412,6 @@ app.get("/api/data", authenticateToken, async (req, res) => {
             tasks,
             subjects,
             settings,
-            notifications,
             calendarItems,
             focusSessions,
             pdfs
@@ -556,7 +538,6 @@ async function saveUserDataAsync(tx, data, userId) {
     await tx.run("DELETE FROM tasks WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM subjects WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM settings WHERE user_id = ?", [userId]);
-    await tx.run("DELETE FROM notifications WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM calendar_items WHERE user_id = ?", [userId]);
     await tx.run("DELETE FROM focus_sessions WHERE user_id = ?", [userId]);
 
@@ -597,20 +578,6 @@ async function saveUserDataAsync(tx, data, userId) {
             `, [String(key), userId, JSON.stringify(value)]);
         }
     }
-
-    for (const notification of Array.isArray(data.notifications) ? data.notifications : []) {
-        if (!notification.id) continue;
-        await tx.run(`
-            INSERT INTO notifications (
-                id, user_id, title, message, created_at, read, notification_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        `, [
-            String(notification.id), userId, notification.title ?? "",
-            notification.message ?? "", notification.createdAt ?? new Date().toISOString(),
-            Boolean(notification.read), notification.key ?? null
-        ]);
-    }
-
     for (const item of Array.isArray(data.calendarItems) ? data.calendarItems : []) {
         if (!item.id) continue;
         await tx.run(`
